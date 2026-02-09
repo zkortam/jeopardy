@@ -83,6 +83,7 @@ function App() {
   const [isPlayerView, setIsPlayerView] = useState(false);
   const [playerInfo, setPlayerInfo] = useState<{ id: string; name: string; teamId: string } | null>(null);
   const pusherChannelRef = useRef<any>(null);
+  const teamsRef = useRef<Team[]>([]);
 
   // Check if this is a player view (based on URL path)
   useEffect(() => {
@@ -114,13 +115,11 @@ function App() {
 
     // Enable client events
     channel.bind('pusher:subscription_succeeded', () => {
-      // Send teams list to players (use current state)
-      setGameState(prev => {
-        if (pusherChannelRef.current === channel && prev.teams.length > 0) {
-          channel.trigger('client-teams-list', { teams: prev.teams });
-        }
-        return prev;
-      });
+      // Send teams list to players immediately when channel is ready
+      // Use ref to get latest teams without state delay
+      if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+        channel.trigger('client-teams-list', { teams: teamsRef.current });
+      }
     });
 
     // Listen for buzzer presses
@@ -172,15 +171,12 @@ function App() {
       }, 0);
     });
 
-    // Listen for team list requests
+    // Listen for team list requests - respond immediately with current teams from ref
     channel.bind('client-request-teams', () => {
-      // Use current state from setGameState to avoid stale closure
-      setGameState(prev => {
-        if (pusherChannelRef.current === channel && prev.teams.length > 0) {
-          channel.trigger('client-teams-list', { teams: prev.teams });
-        }
-        return prev;
-      });
+      if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+        // Use ref to get latest teams immediately without state delay
+        channel.trigger('client-teams-list', { teams: teamsRef.current });
+      }
     });
 
     return () => {
@@ -215,6 +211,11 @@ function App() {
       pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
     }
   }, [gameState.teams, gameState.roomCode, isPlayerView]);
+
+  // Keep teams ref in sync
+  useEffect(() => {
+    teamsRef.current = gameState.teams;
+  }, [gameState.teams]);
 
   // Save game state to localStorage whenever it changes (but not on initial load)
   const isInitialMount = useRef(true);
@@ -657,10 +658,18 @@ function App() {
     
     // Request teams immediately and on subscription
     const requestTeams = () => {
+      // Request immediately
       channel.trigger('client-request-teams', {});
+      // Also request after a short delay to handle race conditions
+      setTimeout(() => {
+        channel.trigger('client-request-teams', {});
+      }, 500);
     };
     
     channel.bind('pusher:subscription_succeeded', requestTeams);
+    
+    // Also request immediately (in case subscription already succeeded)
+    requestTeams();
 
     channel.bind('client-teams-list', (data: { teams: Team[] }) => {
       const currentRoomCode = getRoomCodeFromURL();
