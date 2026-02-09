@@ -193,20 +193,24 @@ function App() {
     // Listen for team list requests - respond immediately with current teams from ref
     channel.bind('client-request-teams', () => {
       if (pusherChannelRef.current === channel) {
-        // Always respond, even if teamsRef is empty (might be timing issue)
-        // Use ref to get latest teams immediately without state delay, fallback to state
-        const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-        if (teamsToSend.length > 0) {
-          // Use setTimeout to ensure we're outside any state update cycle
-          setTimeout(() => {
-            if (pusherChannelRef.current === channel) {
-              const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-              if (currentTeams.length > 0) {
-                channel.trigger('client-teams-list', { teams: currentTeams });
+        // Use functional state update to get latest teams, then broadcast
+        setGameState(prev => {
+          // Always use ref first (most up-to-date), fallback to state
+          const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+          if (teamsToSend.length > 0) {
+            // Use setTimeout to ensure we're outside state update cycle
+            setTimeout(() => {
+              if (pusherChannelRef.current === channel) {
+                // Get latest teams again (in case they changed)
+                const latestTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+                if (latestTeams.length > 0) {
+                  channel.trigger('client-teams-list', { teams: latestTeams });
+                }
               }
-            }
-          }, 0);
-        }
+            }, 0);
+          }
+          return prev; // Don't modify state, just use it to get latest value
+        });
       }
     });
 
