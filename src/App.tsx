@@ -275,7 +275,15 @@ function App() {
   };
 
   const handleAnswer = (isCorrect: boolean) => {
-    if (!gameState.currentQuestion || !gameState.currentTeam) return;
+    if (!gameState.currentQuestion) return;
+    
+    // If no team has buzzed in yet, use selectedTeam as fallback
+    // This allows host to manually process answers if needed
+    const answeringTeam = gameState.currentTeam || gameState.selectedTeam;
+    if (!answeringTeam) {
+      console.warn('Cannot process answer: no team selected');
+      return;
+    }
 
     const updatedCategories = gameState.categories.map(cat => {
       if (cat.id === gameState.selectedQuestion?.categoryId) {
@@ -293,7 +301,7 @@ function App() {
     });
 
     const updatedTeams = gameState.teams.map(team => {
-      if (team.id === gameState.currentTeam!.id) {
+      if (team.id === answeringTeam.id) {
         return {
           ...team,
           score: isCorrect
@@ -306,7 +314,7 @@ function App() {
 
     if (isCorrect) {
       // Give control to the team that answered correctly (Jeopardy rule)
-      const correctTeam = gameState.currentTeam;
+      const correctTeam = answeringTeam;
       const correctTeamIndex = correctTeam ? gameState.teams.findIndex(t => t.id === correctTeam.id) : 0;
       
       setGameState(prev => ({
@@ -337,7 +345,7 @@ function App() {
         gamePhase: 'steal',
         buzzerEnabled: true, // Enable buzzer for other teams to steal
         buzzerPress: null,
-        currentTeam: null, // Will be set when someone buzzes in
+        currentTeam: answeringTeam, // Keep track of who got it wrong (to prevent re-buzz)
       }));
     }
   };
@@ -522,8 +530,8 @@ function App() {
           return prev;
         }
         
-        // When timer runs out, mark as incorrect and go to steal phase
-        if (!prev.currentQuestion || !prev.currentTeam || !prev.selectedQuestion) {
+        // When timer runs out, go to steal phase
+        if (!prev.currentQuestion || !prev.selectedQuestion) {
           timerExpiredRef.current = false;
           return prev;
         }
@@ -543,15 +551,19 @@ function App() {
           return cat;
         });
 
-        const updatedTeams = prev.teams.map(team => {
-          if (team.id === prev.currentTeam!.id) {
-            return {
-              ...team,
-              score: team.score - prev.currentQuestion!.value,
-            };
-          }
-          return team;
-        });
+        // If someone buzzed in, deduct points from that team
+        // Otherwise, just go to steal phase without penalty
+        const updatedTeams = prev.currentTeam
+          ? prev.teams.map(team => {
+              if (team.id === prev.currentTeam!.id) {
+                return {
+                  ...team,
+                  score: team.score - prev.currentQuestion!.value,
+                };
+              }
+              return team;
+            })
+          : prev.teams;
 
         return {
           ...prev,
@@ -563,7 +575,7 @@ function App() {
           answerRevealed: false,
           buzzerEnabled: true, // Enable buzzer for other teams to steal
           buzzerPress: null, // Reset buzzer
-          currentTeam: prev.currentTeam, // Keep track of who got it wrong (to prevent re-buzz)
+          currentTeam: prev.currentTeam || null, // Keep track of who got it wrong (if anyone buzzed)
           stealTeam: null, // Reset steal team
         };
       });
@@ -642,16 +654,24 @@ function App() {
     if (!roomCode) return;
 
     const channel = getGameChannel(roomCode);
-    channel.bind('pusher:subscription_succeeded', () => {
-      // Request teams list
+    
+    // Request teams immediately and on subscription
+    const requestTeams = () => {
       channel.trigger('client-request-teams', {});
-    });
+    };
+    
+    channel.bind('pusher:subscription_succeeded', requestTeams);
+    
+    // Also request immediately if already subscribed
+    if (channel.state === 'subscribed') {
+      requestTeams();
+    }
 
     channel.bind('client-teams-list', (data: { teams: Team[] }) => {
       const currentRoomCode = getRoomCodeFromURL();
       setGameState(prev => ({
         ...prev,
-        teams: data.teams,
+        teams: data.teams || [],
         // Keep roomCode from URL, don't overwrite it
         roomCode: currentRoomCode || prev.roomCode,
       }));
@@ -703,20 +723,11 @@ function App() {
     }
 
     if (!playerInfo) {
-      if (gameState.teams.length === 0) {
-        return (
-          <div className="min-h-screen bg text flex items-center justify-center">
-            <div className="text-center">
-              <div className="text-2xl text-text-muted mb-4">Waiting for game to start...</div>
-              <div className="text-lg text-gold font-semibold">Room: {playerRoomCode}</div>
-            </div>
-          </div>
-        );
-      }
-
+      // Always show join screen when room code is present
       // Ensure roomCode is clean (only alphanumeric, uppercase)
       const cleanRoomCode = playerRoomCode ? playerRoomCode.replace(/[^A-Z0-9]/g, '').toUpperCase() : '';
       
+      // Show join screen even if teams aren't synced yet - they'll be updated via Pusher
       return (
         <PlayerJoin
           roomCode={cleanRoomCode}

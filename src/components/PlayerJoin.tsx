@@ -20,6 +20,10 @@ export default function PlayerJoin({ roomCode, teams, onJoin }: PlayerJoinProps)
       setError('Please enter your name');
       return;
     }
+    if (teams.length === 0) {
+      setError('Waiting for teams to be created. Please wait and try again.');
+      return;
+    }
     if (!selectedTeamId) {
       setError('Please select a team');
       return;
@@ -97,24 +101,31 @@ export default function PlayerJoin({ roomCode, teams, onJoin }: PlayerJoinProps)
               <label className="block text-text-muted text-sm mb-3 uppercase tracking-wide">
                 Select Team
               </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {teams.map((team) => (
-                  <button
-                    key={team.id}
-                    onClick={() => {
-                      setSelectedTeamId(team.id);
-                      setError('');
-                    }}
-                    className={`px-6 py-4 border rounded-gem transition-all font-medium text-lg ${
-                      selectedTeamId === team.id
-                        ? 'bg-gold text-bg border-gold shadow-stone-md'
-                        : 'bg-surface text-text border-border hover:border-gold hover:bg-surface-elevated'
-                    }`}
-                  >
-                    {team.name}
-                  </button>
-                ))}
-              </div>
+              {teams.length === 0 ? (
+                <div className="bg-surface border border-border rounded-gem p-6 text-center">
+                  <div className="text-text-muted mb-2">Waiting for teams...</div>
+                  <div className="text-sm text-text-subtle">The host needs to create teams first</div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {teams.map((team) => (
+                    <button
+                      key={team.id}
+                      onClick={() => {
+                        setSelectedTeamId(team.id);
+                        setError('');
+                      }}
+                      className={`px-6 py-4 border rounded-gem transition-all font-medium text-lg ${
+                        selectedTeamId === team.id
+                          ? 'bg-gold text-bg border-gold shadow-stone-md'
+                          : 'bg-surface text-text border-border hover:border-gold hover:bg-surface-elevated'
+                      }`}
+                    >
+                      {team.name}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {error && (

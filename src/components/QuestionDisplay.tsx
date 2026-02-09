@@ -451,8 +451,8 @@ export default function QuestionDisplay({
                   Answering: <span className="text-gold font-semibold">{currentTeam.name}</span>
                 </div>
               ) : (
-                <div className="text-lg text-gold mb-2 font-medium animate-pulse">
-                  Waiting for team to buzz in...
+                <div className="text-lg text-text-muted mb-2">
+                  No team has buzzed in yet - you can still reveal answer and mark correct/incorrect
                 </div>
               )}
               {isSteal && (
