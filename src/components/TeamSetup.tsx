@@ -10,6 +10,7 @@ export default function TeamSetup({ onTeamsReady }: TeamSetupProps) {
     { id: '1', name: '', score: 0 },
     { id: '2', name: '', score: 0 },
   ]);
+  const [isStarting, setIsStarting] = useState(false);
 
   const handleTeamNameChange = (id: string, name: string) => {
     setTeams(prev =>
@@ -33,8 +34,10 @@ export default function TeamSetup({ onTeamsReady }: TeamSetupProps) {
   };
 
   const handleStart = () => {
+    if (isStarting) return;
     const validTeams = teams.filter(team => team.name.trim() !== '');
     if (validTeams.length >= 2) {
+      setIsStarting(true);
       onTeamsReady(validTeams);
     }
   };
@@ -139,6 +142,7 @@ export default function TeamSetup({ onTeamsReady }: TeamSetupProps) {
                 </div>
                 {teams.length > 2 && (
                   <button
+                    type="button"
                     onClick={() => handleRemoveTeam(team.id)}
                     className="px-6 py-4 bg-surface hover:bg-surface-elevated text-text-muted hover:text-error border border-border hover:border-error rounded-gem transition-all font-medium"
                   >
@@ -151,6 +155,7 @@ export default function TeamSetup({ onTeamsReady }: TeamSetupProps) {
 
           {teams.length < 5 && (
             <button
+              type="button"
               onClick={handleAddTeam}
               className="w-full py-4 bg-surface hover:bg-surface-elevated text-gold border border-gold rounded-gem transition-all mb-6 font-medium text-lg"
             >
@@ -162,15 +167,16 @@ export default function TeamSetup({ onTeamsReady }: TeamSetupProps) {
         {/* Start Button */}
         <div className="text-center fade-in-up">
           <button
+            type="button"
             onClick={handleStart}
-            disabled={!canStart}
+            disabled={!canStart || isStarting}
             className={`px-20 py-5 rounded-gem font-semibold text-xl transition-all ${
-              canStart
+              canStart && !isStarting
                 ? 'bg-gold text-bg hover:bg-gold-dark shadow-stone hover:shadow-stone-md'
                 : 'bg-surface text-text-subtle cursor-not-allowed border border-border'
             }`}
           >
-            Start Game
+            {isStarting ? 'Starting...' : 'Start Game'}
           </button>
           {!canStart && (
             <p className="text-text-subtle mt-8 text-lg">

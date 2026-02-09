@@ -14,8 +14,10 @@ export default function PlayerJoin({ roomCode, teams, onJoin }: PlayerJoinProps)
   const [name, setName] = useState('');
   const [selectedTeamId, setSelectedTeamId] = useState('');
   const [error, setError] = useState('');
+  const [isJoining, setIsJoining] = useState(false);
 
   const handleJoin = () => {
+    if (isJoining) return;
     if (!name.trim()) {
       setError('Please enter your name');
       return;
@@ -28,7 +30,7 @@ export default function PlayerJoin({ roomCode, teams, onJoin }: PlayerJoinProps)
       setError('Please select a team');
       return;
     }
-
+    setIsJoining(true);
     const playerId = `player-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     onJoin(playerId, name.trim(), selectedTeamId);
   };
@@ -134,10 +136,13 @@ export default function PlayerJoin({ roomCode, teams, onJoin }: PlayerJoinProps)
           </div>
 
           <button
+            type="button"
             onClick={handleJoin}
-            className="w-full px-10 py-5 bg-gold hover:bg-gold-dark text-bg rounded-gem font-semibold text-xl transition-all shadow-stone hover:shadow-stone-md"
+            disabled={isJoining}
+            aria-busy={isJoining}
+            className="w-full px-10 py-5 bg-gold hover:bg-gold-dark text-bg rounded-gem font-semibold text-xl transition-all shadow-stone hover:shadow-stone-md disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            Join Game
+            {isJoining ? 'Joining...' : 'Join Game'}
           </button>
         </div>
       </div>

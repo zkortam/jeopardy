@@ -127,6 +127,8 @@ function App() {
   const [roomExists, setRoomExists] = useState<boolean | null>(null);
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [roomCodeError, setRoomCodeError] = useState('');
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [roomCreateFailed, setRoomCreateFailed] = useState(false);
   const teamsRef = useRef<Team[]>([]);
 
   // Check if this is a player view (based on URL path) and track room code changes
@@ -231,32 +233,67 @@ function App() {
   }, [gameState]);
 
   const handleTeamsReady = (teams: Team[]) => {
-    const roomCode = generateRoomCode();
-    
-    // Update teamsRef immediately BEFORE setting state
+    // Use existing room code when host clicked "New room" (so players already have the new code)
+    const roomCode = gameState.roomCode || generateRoomCode();
     teamsRef.current = teams;
-    
-    setGameState(prev => {
-      const newState: GameState = {
-        ...prev,
-        teams,
-        gamePhase: 'playing' as const,
-        selectedTeam: teams[0],
-        currentTeamIndex: 0,
-        roomCode,
-      };
-      saveGameState(newState);
-      
-      return newState;
-    });
 
+    const roomPayload = {
+      teams,
+      buzzer: { enabled: false, press: null },
+      updatedAt: Date.now(),
+    };
+
+    // Write to Firebase FIRST so the room exists before we show the code to the host.
+    // Otherwise players can enter the code and get "no room" before the write completes.
     if (!isPlayerView) {
-      set(getRoomRef(roomCode), {
-        teams,
-        buzzer: { enabled: false, press: null },
-        updatedAt: Date.now(),
-      }).catch(() => {
-        // Ignore transient network errors
+      setIsCreatingRoom(true);
+      set(getRoomRef(roomCode), roomPayload)
+        .then(() => {
+          setIsCreatingRoom(false);
+          setRoomCreateFailed(false);
+          setGameState(prev => {
+            const newState: GameState = {
+              ...prev,
+              teams,
+              gamePhase: 'playing' as const,
+              selectedTeam: teams[0],
+              currentTeamIndex: 0,
+              roomCode,
+            };
+            saveGameState(newState);
+            return newState;
+          });
+        })
+        .catch((err) => {
+          setIsCreatingRoom(false);
+          setRoomCreateFailed(true);
+          console.error('Failed to create room in Firebase:', err);
+          // Still show the game locally so host can retry
+          setGameState(prev => {
+            const newState: GameState = {
+              ...prev,
+              teams,
+              gamePhase: 'playing' as const,
+              selectedTeam: teams[0],
+              currentTeamIndex: 0,
+              roomCode,
+            };
+            saveGameState(newState);
+            return newState;
+          });
+        });
+    } else {
+      setGameState(prev => {
+        const newState: GameState = {
+          ...prev,
+          teams,
+          gamePhase: 'playing' as const,
+          selectedTeam: teams[0],
+          currentTeamIndex: 0,
+          roomCode,
+        };
+        saveGameState(newState);
+        return newState;
       });
     }
   };
@@ -652,14 +689,31 @@ function App() {
     if (!isPlayerView || !playerRoomCode) return;
     setRoomExists(null);
     const roomRef = getRoomRef(playerRoomCode);
+    let graceTimer: ReturnType<typeof setTimeout> | null = null;
     const unsubscribe = onValue(roomRef, snapshot => {
       const data = snapshot.val();
-      setRoomExists(data !== null && typeof data === 'object');
+      const exists = data !== null && typeof data === 'object';
+      if (exists) {
+        if (graceTimer) clearTimeout(graceTimer);
+        graceTimer = null;
+        setRoomExists(true);
+      } else {
+        // Room not found yet: give a short grace period (host may have just created it)
+        if (graceTimer) return;
+        graceTimer = setTimeout(() => {
+          graceTimer = null;
+          setRoomExists(false);
+        }, 2000);
+      }
     }, (error) => {
+      if (graceTimer) clearTimeout(graceTimer);
       console.error('Error checking room:', error);
       setRoomExists(false);
     });
-    return () => unsubscribe();
+    return () => {
+      if (graceTimer) clearTimeout(graceTimer);
+      unsubscribe();
+    };
   }, [isPlayerView, playerRoomCode]);
 
   // Subscribe to buzzer state for players
@@ -698,10 +752,13 @@ function App() {
         }));
         return;
       }
-      const receivedTeams = Array.isArray(value) ? value : Object.values(value);
+      const raw = Array.isArray(value) ? value : Object.values(value || {});
+      const receivedTeams = raw.filter(
+        (t): t is Team => t && typeof t === 'object' && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.score === 'number'
+      );
       setGameState(prev => ({
         ...prev,
-        teams: receivedTeams as Team[],
+        teams: receivedTeams,
         roomCode: playerRoomCode || prev.roomCode,
       }));
     }, (error) => {
@@ -761,6 +818,9 @@ function App() {
                 }}
                 placeholder="e.g. ABC123"
                 maxLength={8}
+                autoComplete="off"
+                autoFocus
+                aria-label="Room code"
                 className="w-full px-6 py-4 border border-border rounded-gem bg-bg-alt text-text text-center text-2xl font-bold focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold"
                 style={{
                   backgroundColor: 'var(--color-bg-alt)',
@@ -866,21 +926,37 @@ function App() {
     const team = gameState.teams.find(t => t.id === playerInfo.teamId);
     if (!team) {
       return (
-        <div className="min-h-screen bg text flex items-center justify-center">
-          <div className="text-center">
+        <div className="min-h-screen bg text flex items-center justify-center p-6">
+          <div className="text-center max-w-md">
             <div className="text-text-muted mb-4">
               {gameState.teams.length === 0
                 ? 'Waiting for teams to sync...'
                 : 'Your team is no longer available.'}
             </div>
-            {gameState.teams.length > 0 && (
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              {gameState.teams.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPlayerInfo(null)}
+                  className="px-6 py-3 bg-gold hover:bg-gold-dark text-bg rounded-gem transition-all font-medium"
+                >
+                  Rejoin Game
+                </button>
+              )}
               <button
-                onClick={() => setPlayerInfo(null)}
+                type="button"
+                onClick={() => {
+                  setPlayerInfo(null);
+                  setPlayerRoomCode(null);
+                  setRoomExists(null);
+                  setRoomCodeInput('');
+                  window.history.replaceState({}, '', window.location.pathname || '/');
+                }}
                 className="px-6 py-3 bg-surface hover:bg-surface-elevated text-text border border-border rounded-gem transition-all font-medium"
               >
-                Rejoin Game
+                Use different code
               </button>
-            )}
+            </div>
           </div>
         </div>
       );
@@ -901,15 +977,31 @@ function App() {
   // Admin/Host view
   return (
     <div className="min-h-screen bg text">
-      {gameState.gamePhase === 'setup' && (
+      {gameState.gamePhase === 'setup' && isCreatingRoom && (
+        <div className="min-h-screen bg flex items-center justify-center p-8">
+          <div className="text-center text-text-muted">
+            <div className="text-xl font-medium mb-2">Creating room...</div>
+            <div className="text-sm text-text-subtle">Making sure players can join. Please wait.</div>
+          </div>
+        </div>
+      )}
+      {gameState.gamePhase === 'setup' && !isCreatingRoom && (
         <TeamSetup onTeamsReady={handleTeamsReady} />
       )}
       {(gameState.gamePhase === 'playing' || gameState.gamePhase === 'team-select') && (
         <>
+          {roomCreateFailed && (
+            <div className="fixed top-4 left-4 right-4 sm:left-auto sm:right-[calc(12rem+1rem)] sm:max-w-md z-50 bg-error/10 border border-error rounded-gem px-4 py-3 flex items-center justify-between gap-3">
+              <span className="text-sm text-error">Room could not be created online. Players may not be able to join. Try &quot;New room&quot; to retry.</span>
+              <button type="button" onClick={() => setRoomCreateFailed(false)} className="shrink-0 text-error hover:underline text-sm font-medium">Dismiss</button>
+            </div>
+          )}
           {gameState.roomCode && (
-            <div className="fixed top-4 right-4 bg-surface border border-gold rounded-gem px-6 py-4 z-50 shadow-stone-md">
-              <div className="text-xs text-text-muted uppercase tracking-wide mb-2">Room Code</div>
-              <div className="text-3xl font-bold text-gold select-all tracking-wider font-mono">{gameState.roomCode}</div>
+            <div className="fixed top-4 right-4 bg-surface border border-gold rounded-gem px-4 py-3 sm:px-6 sm:py-4 z-50 shadow-stone-md max-w-[calc(100vw-2rem)]">
+              <div className="text-xs text-text-muted uppercase tracking-wide mb-1 sm:mb-2">Room Code</div>
+              <div className="text-2xl sm:text-3xl font-bold text-gold select-all tracking-wider font-mono break-all" title="Tap to select and copy">
+                {gameState.roomCode}
+              </div>
             </div>
           )}
           <GameBoard
@@ -958,7 +1050,7 @@ function App() {
                   buzzerPress: null,
                   players: [],
                 });
-                
+                setRoomCreateFailed(false);
                 // Clear localStorage
                 localStorage.removeItem(STORAGE_KEY);
 
