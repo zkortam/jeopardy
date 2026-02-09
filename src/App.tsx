@@ -661,11 +661,6 @@ function App() {
     };
     
     channel.bind('pusher:subscription_succeeded', requestTeams);
-    
-    // Also request immediately if already subscribed
-    if (channel.state === 'subscribed') {
-      requestTeams();
-    }
 
     channel.bind('client-teams-list', (data: { teams: Team[] }) => {
       const currentRoomCode = getRoomCodeFromURL();
