@@ -204,12 +204,27 @@ function App() {
     // Listen for team list requests - respond immediately with current teams from ref
     channel.bind('client-request-teams', () => {
       if (pusherChannelRef.current === channel) {
-        // Respond immediately using ref (most up-to-date), fallback to state
-        const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-        if (teamsToSend.length > 0) {
-          // Broadcast immediately - don't wait for state update
-          channel.trigger('client-teams-list', { teams: teamsToSend });
-        }
+        // Use functional state update to get latest teams
+        setGameState(prev => {
+          // Respond immediately using ref (most up-to-date), fallback to state
+          const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+          if (teamsToSend.length > 0) {
+            // Broadcast immediately - use setTimeout to ensure we're outside state update
+            setTimeout(() => {
+              if (pusherChannelRef.current === channel) {
+                const latestTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+                if (latestTeams.length > 0) {
+                  try {
+                    channel.trigger('client-teams-list', { teams: latestTeams });
+                  } catch (e) {
+                    console.warn('Failed to trigger client-teams-list:', e);
+                  }
+                }
+              }
+            }, 0);
+          }
+          return prev; // Don't modify state
+        });
       }
     });
 
