@@ -194,10 +194,18 @@ function App() {
     channel.bind('client-request-teams', () => {
       if (pusherChannelRef.current === channel) {
         // Always respond, even if teamsRef is empty (might be timing issue)
-        // Use ref to get latest teams immediately without state delay
+        // Use ref to get latest teams immediately without state delay, fallback to state
         const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
         if (teamsToSend.length > 0) {
-          channel.trigger('client-teams-list', { teams: teamsToSend });
+          // Use setTimeout to ensure we're outside any state update cycle
+          setTimeout(() => {
+            if (pusherChannelRef.current === channel) {
+              const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+              if (currentTeams.length > 0) {
+                channel.trigger('client-teams-list', { teams: currentTeams });
+              }
+            }
+          }, 0);
         }
       }
     });
@@ -233,12 +241,16 @@ function App() {
     if (gameState.teams.length > 0) {
       // Broadcast immediately
       pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
-      // Also broadcast after a short delay to ensure all players receive it
-      setTimeout(() => {
+      // Also broadcast multiple times to ensure all players receive it
+      const broadcast = () => {
         if (pusherChannelRef.current && gameState.teams.length > 0) {
           pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
         }
-      }, 200);
+      };
+      setTimeout(broadcast, 200);
+      setTimeout(broadcast, 500);
+      setTimeout(broadcast, 1000);
+      setTimeout(broadcast, 2000);
     }
   }, [gameState.teams, gameState.roomCode, isPlayerView]);
 
@@ -705,6 +717,8 @@ function App() {
     if (!roomCode) return;
 
     const channel = getGameChannel(roomCode);
+    let teamsReceived = false;
+    let pollInterval: number | null = null;
     
     // Request teams immediately and on subscription
     const requestTeams = () => {
@@ -731,6 +745,12 @@ function App() {
       const currentRoomCode = getRoomCodeFromURL();
       const receivedTeams = data.teams || [];
       if (receivedTeams.length > 0) {
+        teamsReceived = true;
+        // Clear polling once we have teams
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
         setGameState(prev => ({
           ...prev,
           teams: receivedTeams,
@@ -740,7 +760,22 @@ function App() {
       }
     });
 
+    // Poll for teams every 2 seconds until we receive them
+    pollInterval = window.setInterval(() => {
+      if (!teamsReceived) {
+        requestTeams();
+      } else {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      }
+    }, 2000);
+
     return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
       channel.unbind_all();
       channel.unsubscribe();
     };
