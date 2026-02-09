@@ -384,6 +384,9 @@ function App() {
       const correctTeam = answeringTeam;
       const correctTeamIndex = correctTeam ? gameState.teams.findIndex(t => t.id === correctTeam.id) : 0;
       
+      // Update teamsRef immediately
+      teamsRef.current = updatedTeams;
+      
       setGameState(prev => ({
         ...prev,
         teams: updatedTeams,
@@ -403,6 +406,9 @@ function App() {
       }));
     } else {
       // Go to steal phase - enable buzzer for all OTHER teams
+      // Update teamsRef immediately
+      teamsRef.current = updatedTeams;
+      
       setGameState(prev => ({
         ...prev,
         teams: updatedTeams,
@@ -531,6 +537,9 @@ function App() {
       const stealTeam = gameState.stealTeam;
       const stealTeamIndex = stealTeam ? gameState.teams.findIndex(t => t.id === stealTeam.id) : 0;
       
+      // Update teamsRef immediately
+      teamsRef.current = updatedTeams;
+      
       setGameState(prev => ({
         ...prev,
         teams: updatedTeams,
@@ -550,6 +559,9 @@ function App() {
       }));
     } else {
       // Wrong steal - go back to steal phase, enable buzzer for remaining teams
+      // Update teamsRef immediately (though score doesn't change for wrong steal)
+      teamsRef.current = updatedTeams;
+      
       setGameState(prev => ({
         ...prev,
         teams: updatedTeams,
@@ -631,6 +643,9 @@ function App() {
               return team;
             })
           : prev.teams;
+
+        // Update teamsRef immediately
+        teamsRef.current = updatedTeams;
 
         return {
           ...prev,
@@ -877,16 +892,24 @@ function App() {
             gameState={gameState}
             onQuestionSelect={handleQuestionSelect}
             onScoreChange={(teamId, newScore) => {
-              setGameState(prev => ({
-                ...prev,
-                teams: prev.teams.map(team =>
+              setGameState(prev => {
+                const updatedTeams = prev.teams.map(team =>
                   team.id === teamId ? { ...team, score: newScore } : team
-                ),
-              }));
+                );
+                // Update teamsRef immediately
+                teamsRef.current = updatedTeams;
+                return {
+                  ...prev,
+                  teams: updatedTeams,
+                };
+              });
             }}
             onNewRoom={() => {
               if (confirm('Start a new room? This will reset all teams, scores, and game progress. Players will need to rejoin with the new room code.')) {
                 const newRoomCode = generateRoomCode();
+                
+                // Reset teamsRef
+                teamsRef.current = [];
                 
                 // Reset to initial game state with new room code
                 setGameState({
