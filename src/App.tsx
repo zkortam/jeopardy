@@ -217,7 +217,19 @@ function App() {
                   try {
                     channel.trigger('client-teams-list', { teams: latestTeams });
                   } catch (e) {
-                    console.warn('Failed to trigger client-teams-list:', e);
+                    // Channel might not be ready yet, try again in a bit
+                    setTimeout(() => {
+                      if (pusherChannelRef.current === channel) {
+                        try {
+                          const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+                          if (currentTeams.length > 0) {
+                            channel.trigger('client-teams-list', { teams: currentTeams });
+                          }
+                        } catch (e2) {
+                          // Still not ready, that's ok - subscription handler will broadcast
+                        }
+                      }
+                    }, 200);
                   }
                 }
               }
@@ -326,12 +338,13 @@ function App() {
         try {
           pusherChannelRef.current.trigger('client-teams-list', { teams });
         } catch (e) {
-          // Channel might not be ready yet, that's ok
+          // Channel might not be ready yet, that's ok - useEffect will handle it
+          // Silently fail - subscription handler will broadcast when ready
         }
       }
     };
     
-    // Try immediately
+    // Try immediately (channel might already be subscribed)
     setTimeout(broadcastTeams, 0);
     // Then try multiple times as channel subscription completes
     setTimeout(broadcastTeams, 100);
