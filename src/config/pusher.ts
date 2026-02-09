@@ -12,18 +12,24 @@ const getEnvVar = (key: string, defaultValue: string): string => {
 };
 
 export const PUSHER_CONFIG = {
-  key: getEnvVar('VITE_PUSHER_KEY', '920e9f72d2776ce6dbb0'),
-  cluster: getEnvVar('VITE_PUSHER_CLUSTER', 'us3'),
+  key: getEnvVar('VITE_PUSHER_KEY', ''),
+  cluster: getEnvVar('VITE_PUSHER_CLUSTER', ''),
+  authEndpoint: getEnvVar('VITE_PUSHER_AUTH_ENDPOINT', '/api/pusher/auth'),
 };
 
 export const pusherClient = new Pusher(PUSHER_CONFIG.key, {
   cluster: PUSHER_CONFIG.cluster,
   forceTLS: true,
+  authEndpoint: PUSHER_CONFIG.authEndpoint,
 });
 
-// Channel naming convention: game-{roomCode}
+if (!PUSHER_CONFIG.key || !PUSHER_CONFIG.cluster) {
+  console.warn('Missing Pusher configuration. Set VITE_PUSHER_KEY and VITE_PUSHER_CLUSTER.');
+}
+
+// Channel naming convention: private-game-{roomCode}
 export const getGameChannel = (roomCode: string) => {
-  return pusherClient.subscribe(`game-${roomCode}`);
+  return pusherClient.subscribe(`private-game-${roomCode}`);
 };
 
 // Generate a random room code

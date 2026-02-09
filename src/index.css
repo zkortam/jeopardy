@@ -1,9 +1,9 @@
+/* Font imports - Modern sans-serif with strong vertical proportions */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Font imports - Modern sans-serif with strong vertical proportions */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 /* ==========================================================================
    CSS Custom Properties - Dark Mode (Default for Jeopardy)

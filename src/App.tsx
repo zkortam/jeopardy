@@ -12,6 +12,15 @@ import './App.css';
 
 const STORAGE_KEY = 'jeopardy-game-state';
 
+const isAdminPath = (path: string): boolean => {
+  return path === '/admin' || path.startsWith('/admin/');
+};
+
+const getInitialIsPlayerView = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return !isAdminPath(window.location.pathname);
+};
+
 function loadGameState(): GameState | null {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -36,25 +45,27 @@ function saveGameState(state: GameState) {
   }
 }
 
-function getInitialState(): GameState {
-  const saved = loadGameState();
-  if (saved) {
-    // Reset timer and active states when loading from storage
-    return {
-      ...saved,
-      timer: 0,
-      timerActive: false,
-      answerRevealed: false,
-      buzzerEnabled: false,
-      buzzerPress: null,
-      // If we were in answer phase, go back to playing
-      gamePhase: saved.gamePhase === 'answer' ? 'playing' : saved.gamePhase,
-      // Ensure roomCode exists if we have teams
-      roomCode: saved.roomCode || (saved.teams && saved.teams.length > 0 ? generateRoomCode() : null),
-      players: saved.players || [],
-    };
+function getInitialState(isPlayerView: boolean): GameState {
+  if (!isPlayerView) {
+    const saved = loadGameState();
+    if (saved) {
+      // Reset timer and active states when loading from storage
+      return {
+        ...saved,
+        timer: 0,
+        timerActive: false,
+        answerRevealed: false,
+        buzzerEnabled: false,
+        buzzerPress: null,
+        // If we were in answer phase, go back to playing
+        gamePhase: saved.gamePhase === 'answer' ? 'playing' : saved.gamePhase,
+        // Ensure roomCode exists if we have teams
+        roomCode: saved.roomCode || (saved.teams && saved.teams.length > 0 ? generateRoomCode() : null),
+        players: saved.players || [],
+      };
+    }
   }
-  
+
   return {
     teams: [],
     categories: gameData.map(cat => ({
@@ -79,8 +90,9 @@ function getInitialState(): GameState {
 }
 
 function App() {
-  const [gameState, setGameState] = useState<GameState>(getInitialState);
-  const [isPlayerView, setIsPlayerView] = useState(false);
+  const initialIsPlayerView = getInitialIsPlayerView();
+  const [gameState, setGameState] = useState<GameState>(() => getInitialState(initialIsPlayerView));
+  const [isPlayerView, setIsPlayerView] = useState(initialIsPlayerView);
   const [playerInfo, setPlayerInfo] = useState<{ id: string; name: string; teamId: string } | null>(null);
   const pusherChannelRef = useRef<any>(null);
   const teamsRef = useRef<Team[]>([]);
@@ -88,8 +100,7 @@ function App() {
   // Check if this is a player view (based on URL path)
   useEffect(() => {
     const path = window.location.pathname;
-    const isAdmin = path === '/admin' || path.startsWith('/admin/');
-    setIsPlayerView(!isAdmin);
+    setIsPlayerView(!isAdminPath(path));
   }, []);
 
   // Initialize Pusher channel when room code is set (host only)
@@ -751,6 +762,13 @@ function App() {
       // Someone buzzed
     });
 
+    channel.bind('client-new-room', (data: { roomCode?: string }) => {
+      const nextRoom = data?.roomCode?.toUpperCase?.().replace(/[^A-Z0-9]/g, '');
+      if (nextRoom) {
+        window.location.href = `/?room=${nextRoom}`;
+      }
+    });
+
     return () => {
       channel.unbind_all();
       channel.unsubscribe();
@@ -759,7 +777,7 @@ function App() {
 
   // Subscribe to get teams list for players
   useEffect(() => {
-    if (!isPlayerView || playerInfo) return;
+    if (!isPlayerView) return;
     
     const roomCode = getRoomCodeFromURL();
     if (!roomCode) return;
@@ -827,7 +845,7 @@ function App() {
       channel.unbind_all();
       channel.unsubscribe();
     };
-  }, [isPlayerView, playerInfo]);
+  }, [isPlayerView]);
 
   // Player view - show join or buzzer
   if (isPlayerView) {
@@ -887,7 +905,21 @@ function App() {
     if (!team) {
       return (
         <div className="min-h-screen bg text flex items-center justify-center">
-          <div className="text-center text-error">Team not found</div>
+          <div className="text-center">
+            <div className="text-text-muted mb-4">
+              {gameState.teams.length === 0
+                ? 'Waiting for teams to sync...'
+                : 'Your team is no longer available.'}
+            </div>
+            {gameState.teams.length > 0 && (
+              <button
+                onClick={() => setPlayerInfo(null)}
+                className="px-6 py-3 bg-surface hover:bg-surface-elevated text-text border border-border rounded-gem transition-all font-medium"
+              >
+                Rejoin Game
+              </button>
+            )}
+          </div>
         </div>
       );
     }
