@@ -69,7 +69,7 @@ export default function PlayerBuzzer({
   const canBuzz = buzzerEnabled && !hasBuzzed && !buzzerLocked && !buzzerPress;
 
   return (
-    <div className="relative min-h-screen bg flex items-center justify-center p-8 overflow-hidden">
+    <div className="relative min-h-screen min-h-[100dvh] bg flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden">
       {/* Background pattern */}
       <div className="absolute inset-0 pointer-events-none">
         <svg
@@ -90,47 +90,56 @@ export default function PlayerBuzzer({
         </svg>
       </div>
 
-      <div className="relative z-10 w-full max-w-2xl text-center">
-        <div className="mb-6 fade-in-up">
+      <div className="relative z-10 w-full max-w-2xl flex flex-col items-center flex-1 justify-center text-center">
+        <div className="mb-4 sm:mb-6 shrink-0">
           <div className="text-sm text-text-subtle mb-1">Room: {roomCode}</div>
           <div className="text-xl text-gold font-semibold mb-1">{playerName}</div>
           <div className="text-base text-text-muted">Team: {team.name}</div>
         </div>
 
-        <div className="mb-8 fade-in-up">
+        <div className="mb-4 sm:mb-6 w-full shrink-0">
           {hasBuzzed ? (
-            <div className="bg-gold/20 border-2 border-gold rounded-gem p-6 animate-pulse">
-              <div className="text-3xl text-gold font-bold mb-2">✓ You buzzed in!</div>
-              <div className="text-text-muted">Waiting for host to call on you</div>
+            <div className="bg-gold/20 border-2 border-gold rounded-gem p-4 sm:p-6 animate-pulse">
+              <div className="text-2xl sm:text-3xl text-gold font-bold mb-2">You pressed the buzzer</div>
+              <div className="text-sm sm:text-base text-text-muted">Others are blocked until the host resolves this question.</div>
             </div>
           ) : buzzerLocked ? (
-            <div className="bg-surface border border-error/30 rounded-gem p-6">
-              <div className="text-2xl text-error font-bold mb-2">Locked</div>
-              <div className="text-text-muted">Someone else buzzed first</div>
+            <div className="bg-surface border border-error/30 rounded-gem p-4 sm:p-6">
+              <div className="text-xl sm:text-2xl text-error font-bold mb-2">Locked</div>
+              <div className="text-sm sm:text-base text-text-muted">Someone else pressed first. Wait for the host to resolve.</div>
             </div>
           ) : !buzzerEnabled ? (
-            <div className="bg-surface border border-border rounded-gem p-6">
-              <div className="text-xl text-text-muted">Waiting for question...</div>
+            <div className="bg-surface border border-border rounded-gem p-4 sm:p-6">
+              <div className="text-lg sm:text-xl text-text-muted">Waiting for question...</div>
               <div className="text-sm text-text-subtle mt-2">The buzzer will activate when a question is shown</div>
             </div>
           ) : (
-            <div className="bg-surface border-2 border-gold rounded-gem p-6">
-              <div className="text-2xl text-gold font-bold mb-2">Ready!</div>
-              <div className="text-text-muted">Press the button when you know the answer</div>
+            <div className="bg-surface border-2 border-gold rounded-gem p-4 sm:p-6">
+              <div className="text-xl sm:text-2xl text-gold font-bold mb-2">Ready!</div>
+              <div className="text-sm sm:text-base text-text-muted">Tap the red button when you know the answer</div>
             </div>
           )}
         </div>
 
         <button
+          type="button"
           onClick={handleBuzz}
           disabled={!canBuzz}
-          className={`w-full max-w-md mx-auto py-24 rounded-gem font-bold text-5xl transition-all shadow-stone ${
-            canBuzz
-              ? 'bg-gold hover:bg-gold-dark text-bg hover:shadow-stone-md active:scale-95 cursor-pointer transform hover:scale-105'
-              : 'bg-surface text-text-subtle border-2 border-border cursor-not-allowed opacity-50'
-          }`}
+          aria-label={canBuzz ? 'Buzz in' : hasBuzzed ? 'You buzzed' : 'Buzzer locked'}
+          className={`
+            shrink-0 rounded-full font-bold transition-transform active:scale-95
+            w-[min(80vmin,280px)] h-[min(80vmin,280px)] min-w-[200px] min-h-[200px]
+            flex items-center justify-center
+            select-none touch-manipulation
+            ${canBuzz
+              ? 'bg-red-600 hover:bg-red-700 active:bg-red-800 text-white shadow-lg shadow-red-900/40 cursor-pointer'
+              : 'bg-surface text-text-subtle border-2 border-border cursor-not-allowed opacity-60'
+            }
+          `}
         >
-          {hasBuzzed ? '✓ BUZZED!' : buzzerLocked ? '🔒 LOCKED' : '⚡ BUZZ IN'}
+          <span className="text-2xl sm:text-3xl md:text-4xl px-2">
+            {hasBuzzed ? '✓ BUZZED!' : buzzerLocked ? 'LOCKED' : 'BUZZ IN'}
+          </span>
         </button>
       </div>
     </div>

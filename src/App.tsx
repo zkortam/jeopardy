@@ -112,12 +112,42 @@ function App() {
   const [gameState, setGameState] = useState<GameState>(() => getInitialState(initialIsPlayerView));
   const [isPlayerView, setIsPlayerView] = useState(initialIsPlayerView);
   const [playerInfo, setPlayerInfo] = useState<{ id: string; name: string; teamId: string } | null>(null);
+  const [playerRoomCode, setPlayerRoomCode] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    const path = window.location.pathname;
+    const urlParams = new URLSearchParams(window.location.search);
+    const pathMatch = path.match(/\/room\/([A-Z0-9]+)/i);
+    if (pathMatch) {
+      return pathMatch[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
+    }
+    const roomParam = urlParams.get('room');
+    return roomParam ? roomParam.toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+  });
+  /** For player view: null = loading, false = no active room, true = room exists (may still be waiting for teams) */
+  const [roomExists, setRoomExists] = useState<boolean | null>(null);
+  const [roomCodeInput, setRoomCodeInput] = useState('');
+  const [roomCodeError, setRoomCodeError] = useState('');
   const teamsRef = useRef<Team[]>([]);
 
-  // Check if this is a player view (based on URL path)
+  // Check if this is a player view (based on URL path) and track room code changes
   useEffect(() => {
-    const path = window.location.pathname;
-    setIsPlayerView(!isAdminPath(path));
+    const updateFromURL = () => {
+      const path = window.location.pathname;
+      setIsPlayerView(!isAdminPath(path));
+      
+      const urlParams = new URLSearchParams(window.location.search);
+      const pathMatch = path.match(/\/room\/([A-Z0-9]+)/i);
+      if (pathMatch) {
+        setPlayerRoomCode(pathMatch[1].toUpperCase().replace(/[^A-Z0-9]/g, ''));
+      } else {
+        const roomParam = urlParams.get('room');
+        setPlayerRoomCode(roomParam ? roomParam.toUpperCase().replace(/[^A-Z0-9]/g, '') : null);
+      }
+    };
+    
+    updateFromURL();
+    window.addEventListener('popstate', updateFromURL);
+    return () => window.removeEventListener('popstate', updateFromURL);
   }, []);
 
   const syncBuzzerState = (enabled: boolean, press: BuzzerPress | null) => {
@@ -637,14 +667,27 @@ function App() {
     return null;
   };
 
+  // Validate room exists for players (block invalid codes)
+  useEffect(() => {
+    if (!isPlayerView || !playerRoomCode) return;
+    setRoomExists(null);
+    const roomRef = getRoomRef(playerRoomCode);
+    const unsubscribe = onValue(roomRef, snapshot => {
+      const data = snapshot.val();
+      setRoomExists(data !== null && typeof data === 'object');
+    }, (error) => {
+      console.error('Error checking room:', error);
+      setRoomExists(false);
+    });
+    return () => unsubscribe();
+  }, [isPlayerView, playerRoomCode]);
+
   // Subscribe to buzzer state for players
   useEffect(() => {
     if (!isPlayerView) return;
+    if (!playerRoomCode) return;
 
-    const roomCode = getRoomCodeFromURL();
-    if (!roomCode) return;
-
-    const buzzerRef = getBuzzerRef(roomCode);
+    const buzzerRef = getBuzzerRef(playerRoomCode);
     const unsubscribe = onValue(buzzerRef, snapshot => {
       const buzzer = snapshot.val();
       if (!buzzer) return;
@@ -656,41 +699,45 @@ function App() {
     });
 
     return () => unsubscribe();
-  }, [isPlayerView]);
+  }, [isPlayerView, playerRoomCode]);
 
   // Subscribe to teams for players
   useEffect(() => {
     if (!isPlayerView) return;
+    if (!playerRoomCode) return;
 
-    const roomCode = getRoomCodeFromURL();
-    if (!roomCode) return;
-
-    const teamsRef = getTeamsRef(roomCode);
+    const teamsRef = getTeamsRef(playerRoomCode);
     const unsubscribe = onValue(teamsRef, snapshot => {
       const value = snapshot.val();
-      if (!value) return;
-      const receivedTeams = Array.isArray(value) ? value : Object.values(value);
-      if (receivedTeams.length > 0) {
-        const currentRoomCode = getRoomCodeFromURL();
+      if (!value) {
+        // If no value, set empty teams array to clear any stale data
         setGameState(prev => ({
           ...prev,
-          teams: receivedTeams as Team[],
-          roomCode: currentRoomCode || prev.roomCode,
+          teams: [],
+          roomCode: playerRoomCode || prev.roomCode,
         }));
+        return;
       }
+      const receivedTeams = Array.isArray(value) ? value : Object.values(value);
+      setGameState(prev => ({
+        ...prev,
+        teams: receivedTeams as Team[],
+        roomCode: playerRoomCode || prev.roomCode,
+      }));
+    }, (error) => {
+      console.error('Error fetching teams:', error);
+      // On error, keep current state but log the error
     });
 
     return () => unsubscribe();
-  }, [isPlayerView]);
+  }, [isPlayerView, playerRoomCode]);
 
   // Listen for new room notifications for players
   useEffect(() => {
     if (!isPlayerView) return;
+    if (!playerRoomCode) return;
 
-    const roomCode = getRoomCodeFromURL();
-    if (!roomCode) return;
-
-    const newRoomRef = getNewRoomRef(roomCode);
+    const newRoomRef = getNewRoomRef(playerRoomCode);
     const unsubscribe = onValue(newRoomRef, snapshot => {
       const data = snapshot.val();
       const nextRoom = (data?.roomCode || data)?.toUpperCase?.().replace(/[^A-Z0-9]/g, '');
@@ -700,40 +747,59 @@ function App() {
     });
 
     return () => unsubscribe();
-  }, [isPlayerView]);
+  }, [isPlayerView, playerRoomCode]);
 
   // Player view - show join or buzzer
   if (isPlayerView) {
-    const playerRoomCode = getRoomCodeFromURL();
-    
     if (!playerRoomCode) {
+      const tryJoin = () => {
+        const code = roomCodeInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        setRoomCodeError('');
+        if (!code) {
+          setRoomCodeError('Enter a room code');
+          return;
+        }
+        if (code.length < 4 || code.length > 8) {
+          setRoomCodeError('Room code must be 4–8 letters or numbers');
+          return;
+        }
+        setPlayerRoomCode(code);
+        window.location.href = `/?room=${code}`;
+      };
       return (
-        <div className="min-h-screen bg text flex items-center justify-center">
-          <div className="text-center max-w-md">
+        <div className="min-h-screen bg text flex items-center justify-center p-6">
+          <div className="text-center max-w-md w-full">
             <div className="text-3xl text-text-muted mb-4">Enter Room Code</div>
             <div className="text-lg text-text-subtle mb-6">Ask the host for the room code</div>
             <div className="mt-6">
               <input
                 type="text"
-                placeholder="Room Code (e.g., ABC123)"
+                value={roomCodeInput}
+                onChange={(e) => {
+                  setRoomCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                  setRoomCodeError('');
+                }}
+                placeholder="e.g. ABC123"
+                maxLength={8}
                 className="w-full px-6 py-4 border border-border rounded-gem bg-bg-alt text-text text-center text-2xl font-bold focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold"
                 style={{
                   backgroundColor: 'var(--color-bg-alt)',
                   color: 'var(--color-text)',
                 }}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    const code = (e.target as HTMLInputElement).value.trim().toUpperCase();
-                    if (code && /^[A-Z0-9]{4,8}$/.test(code)) {
-                      window.location.href = `/?room=${code}`;
-                    } else {
-                      alert('Please enter a valid room code (4-8 letters/numbers)');
-                    }
-                  }
-                }}
+                onKeyDown={(e) => e.key === 'Enter' && tryJoin()}
               />
-              <div className="mt-4 text-sm text-text-subtle">
-                Press Enter to join
+              {roomCodeError && (
+                <div className="mt-2 text-error text-sm">{roomCodeError}</div>
+              )}
+              <div className="mt-4 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={tryJoin}
+                  className="w-full px-6 py-4 bg-gold hover:bg-gold-dark text-bg rounded-gem font-semibold text-lg transition-all"
+                >
+                  Submit
+                </button>
+                <span className="text-sm text-text-subtle">Or press Enter to submit</span>
               </div>
             </div>
           </div>
@@ -741,12 +807,73 @@ function App() {
       );
     }
 
+    // Invalid room code: block and offer to try another
+    if (roomExists === false) {
+      return (
+        <div className="min-h-screen bg text flex items-center justify-center p-6">
+          <div className="text-center max-w-md bg-surface border border-border rounded-gem p-10">
+            <div className="text-2xl font-semibold text-text mb-2">No active room with this code</div>
+            <div className="text-text-muted mb-6">
+              The code &quot;{playerRoomCode}&quot; doesn&apos;t have an active game. Check the code with the host or try another.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPlayerRoomCode(null);
+                setRoomExists(null);
+                setRoomCodeInput('');
+                setRoomCodeError('');
+                window.history.replaceState({}, '', window.location.pathname || '/');
+              }}
+              className="px-6 py-3 bg-gold hover:bg-gold-dark text-bg rounded-gem font-medium transition-all"
+            >
+              Try another code
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Loading: checking if room exists
+    if (roomExists === null) {
+      return (
+        <div className="min-h-screen bg text flex items-center justify-center">
+          <div className="text-center text-text-muted">
+            <div className="text-xl mb-2">Checking room...</div>
+            <div className="text-sm text-text-subtle">Verifying room code</div>
+          </div>
+        </div>
+      );
+    }
+
+    // Room exists but no teams yet
+    if (roomExists === true && gameState.teams.length === 0) {
+      return (
+        <div className="min-h-screen bg text flex items-center justify-center p-6">
+          <div className="text-center max-w-md bg-surface border border-border rounded-gem p-10">
+            <div className="text-2xl font-semibold text-text mb-2">Waiting for host</div>
+            <div className="text-text-muted mb-6">
+              Room <span className="font-mono font-bold text-gold">{playerRoomCode}</span> is set up. The host needs to create teams before you can join.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPlayerRoomCode(null);
+                setRoomExists(null);
+                setRoomCodeInput('');
+                window.history.replaceState({}, '', window.location.pathname || '/');
+              }}
+              className="px-6 py-3 bg-surface-elevated hover:bg-border text-text border border-border rounded-gem font-medium transition-all"
+            >
+              Back to code entry
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (!playerInfo) {
-      // Always show join screen when room code is present
-      // Ensure roomCode is clean (only alphanumeric, uppercase)
-      const cleanRoomCode = playerRoomCode ? playerRoomCode.replace(/[^A-Z0-9]/g, '').toUpperCase() : '';
-      
-      // Show join screen even if teams aren't synced yet - they'll be updated via Firebase
+      const cleanRoomCode = playerRoomCode.replace(/[^A-Z0-9]/g, '').toUpperCase();
       return (
         <PlayerJoin
           roomCode={cleanRoomCode}
@@ -781,7 +908,7 @@ function App() {
 
     return (
       <PlayerBuzzer
-        roomCode={playerRoomCode}
+        roomCode={playerRoomCode!}
         playerId={playerInfo.id}
         playerName={playerInfo.name}
         team={team}
