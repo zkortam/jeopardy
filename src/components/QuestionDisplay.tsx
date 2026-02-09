@@ -82,20 +82,24 @@ export default function QuestionDisplay({
     }
     hasStartedRef.current = false;
 
-    // Only play if we have answer handler and answer not revealed
-    // currentTeam can be undefined initially (waiting for buzzer)
     if (!onAnswerRef.current || answerRevealed) {
       lastPlayKeyRef.current = '';
       return;
     }
-    
-    // If no team yet, wait for buzzer - don't start audio
-    if (!currentTeam) {
+
+    // Normal (answer) phase: play "think" music only while waiting for someone to buzz.
+    // Stop when a team has buzzed in (currentTeam set) or when answer is revealed.
+    // Steal phase: play trap remix when a team is answering (currentTeam set).
+    if (!isSteal && currentTeam) {
+      lastPlayKeyRef.current = '';
+      return;
+    }
+    if (isSteal && !currentTeam) {
       lastPlayKeyRef.current = '';
       return;
     }
 
-    const playKey = `${question.id}-${currentTeam.id}-${isSteal ? 'steal' : 'normal'}`;
+    const playKey = `${question.id}-${currentTeam?.id ?? 'waiting'}-${isSteal ? 'steal' : 'normal'}`;
     
     // Skip if we already started playing for this exact scenario
     const currentAudio = audioRef.current;
@@ -133,7 +137,8 @@ export default function QuestionDisplay({
     // Function to start playback
     const startPlayback = () => {
       if (hasStartedRef.current || !audioRef.current || answerRevealedRef.current) return;
-      if (lastPlayKeyRef.current !== playKey || audioRef.current !== audio || !currentTeam) return;
+      if (lastPlayKeyRef.current !== playKey || audioRef.current !== audio) return;
+      if (isSteal && !currentTeam) return;
 
       hasStartedRef.current = true;
 
