@@ -49,5 +49,7 @@ export interface GameState {
   roomCode: string | null;
   buzzerEnabled: boolean;
   buzzerPress: BuzzerPress | null;
+  /** Team id that cannot buzz (e.g. team that already answered wrong in steal phase) */
+  buzzerNoBuzzTeamId: string | null;
   players: Player[];
 }

@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Question, Team, BuzzerPress } from '../types/game';
 
+const AUDIO = {
+  /** Main theme during answer phase (loops) */
+  QUESTION: '/jeopardysong.mp3',
+  /** Trap remix during steal (plays once from ~30s) */
+  STEAL: '/Jeopardy%20Trap%20Remix.mp3',
+} as const;
+
 interface QuestionDisplayProps {
   question: Question;
   timer: number;
@@ -36,6 +43,10 @@ export default function QuestionDisplay({
   const lastPlayKeyRef = useRef<string>('');
   const hasStartedRef = useRef(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const onAnswerRef = useRef(onAnswer);
+  const answerRevealedRef = useRef(answerRevealed);
+  onAnswerRef.current = onAnswer;
+  answerRevealedRef.current = answerRevealed;
 
   // Global cleanup - ensure only one audio plays at a time
   useEffect(() => {
@@ -57,20 +68,23 @@ export default function QuestionDisplay({
 
   // Play audio when question/team/steal status changes
   useEffect(() => {
-    // Stop ALL existing audio first - critical to prevent multiple tracks
     const existingAudio = audioRef.current;
     if (existingAudio) {
-      existingAudio.pause();
-      existingAudio.currentTime = 0;
-      existingAudio.src = '';
-      existingAudio.load();
+      try {
+        existingAudio.pause();
+        existingAudio.currentTime = 0;
+        existingAudio.removeAttribute('src');
+        existingAudio.load();
+      } catch {
+        // ignore
+      }
       audioRef.current = null;
     }
     hasStartedRef.current = false;
 
     // Only play if we have answer handler and answer not revealed
     // currentTeam can be undefined initially (waiting for buzzer)
-    if (!onAnswer || answerRevealed) {
+    if (!onAnswerRef.current || answerRevealed) {
       lastPlayKeyRef.current = '';
       return;
     }
@@ -93,44 +107,33 @@ export default function QuestionDisplay({
 
     lastPlayKeyRef.current = playKey;
 
-    // Determine which audio file to use
-    const audioFile = isSteal ? '/Jeopardy Trap Remix.mp3' : '/jeopardysong.mp3';
+    const audioFile = isSteal ? AUDIO.STEAL : AUDIO.QUESTION;
     const audio = new Audio(audioFile);
     audio.volume = 1.0;
-    audio.loop = !isSteal; // Loop only for regular questions, NOT for trap remix
+    audio.loop = !isSteal;
     audio.muted = false;
     audio.preload = 'auto';
-    
-    // For trap remix, explicitly disable looping
-    if (isSteal) {
-      audio.loop = false;
-    }
-    
     audioRef.current = audio;
 
     // Store cleanup function
     const cleanup = () => {
       if (audioRef.current === audio) {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.src = '';
-        audio.load();
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.removeAttribute('src');
+          audio.load();
+        } catch {
+          // ignore
+        }
       }
     };
     cleanupRef.current = cleanup;
 
     // Function to start playback
     const startPlayback = () => {
-      // Prevent multiple play attempts
-      if (hasStartedRef.current || !audioRef.current || answerRevealed) {
-        return;
-      }
-
-      // Verify we're still on the same scenario and audio instance
-      // Also need a team to answer
-      if (lastPlayKeyRef.current !== playKey || audioRef.current !== audio || !currentTeam) {
-        return;
-      }
+      if (hasStartedRef.current || !audioRef.current || answerRevealedRef.current) return;
+      if (lastPlayKeyRef.current !== playKey || audioRef.current !== audio || !currentTeam) return;
 
       hasStartedRef.current = true;
 
@@ -138,15 +141,14 @@ export default function QuestionDisplay({
       if (playPromise !== undefined) {
         playPromise
           .then(() => {
-            // Successfully started playing
-            // For steal attempts, ensure we're at 30 seconds after play starts
-            if (isSteal && audio.duration >= 30 && audio.currentTime < 29) {
-              // Wait a bit for audio to be ready, then seek
+            // For steal (trap remix): seek to 30s only if file is long enough
+            const duration = audio.duration;
+            if (isSteal && Number.isFinite(duration) && duration >= 31 && audio.currentTime < 29) {
               setTimeout(() => {
                 if (audioRef.current === audio && !audio.paused) {
                   audio.currentTime = 30;
                 }
-              }, 100);
+              }, 150);
             }
           })
           .catch(error => {
@@ -158,33 +160,40 @@ export default function QuestionDisplay({
       }
     };
 
-    // Set up event listeners - use multiple to ensure we catch when ready
     const handleCanPlay = () => {
-      // Double-check we're still the active audio
-      if (audioRef.current !== audio || lastPlayKeyRef.current !== playKey) {
+      if (audioRef.current !== audio || lastPlayKeyRef.current !== playKey) return;
+      const duration = audio.duration;
+      if (isSteal) {
+        if (Number.isFinite(duration) && duration >= 31) {
+          audio.currentTime = 30;
+          startPlayback();
+        }
         return;
       }
-      
-      // For steal, set time to 30 seconds before playing
-      if (isSteal && audio.duration >= 30) {
-        audio.currentTime = 30;
-      }
-      
       startPlayback();
     };
 
-    // Set up metadata handler for steal to set time before playing
     const handleLoadedMetadata = () => {
-      if (audioRef.current === audio && isSteal && audio.duration >= 30) {
-        audio.currentTime = 30;
+      if (audioRef.current !== audio || lastPlayKeyRef.current !== playKey) return;
+      if (isSteal) {
+        const duration = audio.duration;
+        if (Number.isFinite(duration) && duration >= 31) {
+          audio.currentTime = 30;
+          startPlayback();
+        }
       }
     };
 
-    // Handle audio end for trap remix to prevent any looping
     const handleEnded = () => {
       if (audioRef.current === audio && isSteal) {
-        audio.pause();
-        audio.currentTime = 0;
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.removeAttribute('src');
+          audio.load();
+        } catch {
+          // ignore
+        }
       }
     };
 
@@ -213,31 +222,36 @@ export default function QuestionDisplay({
 
     // Cleanup function
     return () => {
-      // Always cleanup when effect re-runs
       if (audioRef.current === audio) {
-        audio.pause();
-        audio.currentTime = 0;
-        // Clear src to stop loading and remove event listeners
-        audio.src = '';
-        audio.load();
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.removeAttribute('src');
+          audio.load();
+        } catch {
+          // ignore
+        }
         audioRef.current = null;
       }
       hasStartedRef.current = false;
       cleanupRef.current = null;
     };
-  }, [question.id, currentTeam?.id, isSteal, onAnswer, answerRevealed]);
+  }, [question.id, currentTeam?.id, isSteal, answerRevealed]);
 
-  // Stop audio when answer is revealed
   useEffect(() => {
-    if (answerRevealed && audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.src = '';
-      audioRef.current.load();
-      audioRef.current = null;
-      lastPlayKeyRef.current = '';
-      hasStartedRef.current = false;
+    if (!answerRevealed || !audioRef.current) return;
+    const a = audioRef.current;
+    try {
+      a.pause();
+      a.currentTime = 0;
+      a.removeAttribute('src');
+      a.load();
+    } catch {
+      // ignore
     }
+    audioRef.current = null;
+    lastPlayKeyRef.current = '';
+    hasStartedRef.current = false;
   }, [answerRevealed]);
 
   const formatTime = (seconds: number) => {

@@ -75,6 +75,7 @@ function getInitialState(isPlayerView: boolean): GameState {
         answerRevealed: false,
         buzzerEnabled: false,
         buzzerPress: null,
+        buzzerNoBuzzTeamId: null,
         selectedTeam: selectedTeamFromSaved,
         currentTeamIndex,
         // If we were in answer phase, go back to playing
@@ -105,6 +106,7 @@ function getInitialState(isPlayerView: boolean): GameState {
     roomCode: null,
     buzzerEnabled: false,
     buzzerPress: null,
+    buzzerNoBuzzTeamId: null,
     players: [],
   };
 }
@@ -154,10 +156,14 @@ function App() {
     return () => window.removeEventListener('popstate', updateFromURL);
   }, []);
 
-  const syncBuzzerState = (enabled: boolean, press: BuzzerPress | null) => {
+  const syncBuzzerState = (enabled: boolean, press: BuzzerPress | null, noBuzzTeamId?: string | null) => {
     if (isPlayerView || !gameState.roomCode) return;
     const buzzerRef = getBuzzerRef(gameState.roomCode);
-    set(buzzerRef, { enabled, press: press || null }).catch(() => {
+    set(buzzerRef, {
+      enabled,
+      press: press || null,
+      noBuzzTeamId: noBuzzTeamId ?? null,
+    }).catch(() => {
       // Ignore transient network errors
     });
   };
@@ -326,6 +332,7 @@ function App() {
       answerRevealed: false,
       buzzerEnabled: true, // Enable buzzer for ALL teams when question is shown
       buzzerPress: null, // Reset buzzer press
+      buzzerNoBuzzTeamId: null,
     }));
 
     syncBuzzerState(true, null);
@@ -393,6 +400,7 @@ function App() {
         answerRevealed: false,
         buzzerEnabled: false,
         buzzerPress: null,
+        buzzerNoBuzzTeamId: null,
       }));
 
       syncBuzzerState(false, null);
@@ -410,10 +418,11 @@ function App() {
         gamePhase: 'steal',
         buzzerEnabled: true, // Enable buzzer for other teams to steal
         buzzerPress: null,
+        buzzerNoBuzzTeamId: answeringTeam.id, // That team cannot buzz to steal
         currentTeam: answeringTeam, // Keep track of who got it wrong (to prevent re-buzz)
       }));
 
-      syncBuzzerState(true, null);
+      syncBuzzerState(true, null, answeringTeam.id);
     }
   };
 
@@ -442,6 +451,7 @@ function App() {
           answerRevealed: false,
           buzzerEnabled: false,
           buzzerPress: prev.buzzerPress,
+          buzzerNoBuzzTeamId: null,
         }));
         syncBuzzerState(false, gameState.buzzerPress);
         return;
@@ -458,6 +468,7 @@ function App() {
       answerRevealed: false,
       buzzerEnabled: false,
       buzzerPress: null,
+      buzzerNoBuzzTeamId: null,
     }));
 
     syncBuzzerState(false, null);
@@ -496,6 +507,7 @@ function App() {
       answerRevealed: false,
       buzzerEnabled: false,
       buzzerPress: null,
+      buzzerNoBuzzTeamId: null,
     }));
 
     syncBuzzerState(false, null);
@@ -555,6 +567,7 @@ function App() {
         answerRevealed: false,
         buzzerEnabled: false,
         buzzerPress: null,
+        buzzerNoBuzzTeamId: null,
       }));
 
       syncBuzzerState(false, null);
@@ -575,9 +588,10 @@ function App() {
         answerRevealed: false, // Don't reveal answer yet, allow more steal attempts
         buzzerEnabled: true, // Re-enable buzzer for other teams
         buzzerPress: null, // Reset buzzer so others can buzz
+        buzzerNoBuzzTeamId: prev.currentTeam?.id ?? null,
       }));
 
-      syncBuzzerState(true, null);
+      syncBuzzerState(true, null, gameState.currentTeam?.id ?? null);
     }
   };
 
@@ -660,12 +674,13 @@ function App() {
           answerRevealed: false,
           buzzerEnabled: true, // Enable buzzer for other teams to steal
           buzzerPress: null, // Reset buzzer
+          buzzerNoBuzzTeamId: prev.currentTeam?.id ?? null,
           currentTeam: prev.currentTeam || null, // Keep track of who got it wrong (if anyone buzzed)
           stealTeam: null, // Reset steal team
         };
       });
 
-      syncBuzzerState(true, null);
+      syncBuzzerState(true, null, gameState.currentTeam?.id ?? null);
     }
     // Reset flag when timer starts again
     if (gameState.timerActive && gameState.timer > 0) {
@@ -731,6 +746,7 @@ function App() {
         ...prev,
         buzzerEnabled: !!buzzer.enabled,
         buzzerPress: buzzer.press || null,
+        buzzerNoBuzzTeamId: buzzer.noBuzzTeamId ?? null,
       }));
     });
 
@@ -966,6 +982,7 @@ function App() {
         team={team}
         buzzerEnabled={gameState.buzzerEnabled}
         buzzerPress={gameState.buzzerPress}
+        noBuzzTeamId={gameState.buzzerNoBuzzTeamId ?? null}
       />
     );
   }
@@ -1044,6 +1061,7 @@ function App() {
                   roomCode: newRoomCode,
                   buzzerEnabled: false,
                   buzzerPress: null,
+                  buzzerNoBuzzTeamId: null,
                   players: [],
                 });
                 setRoomCreateFailed(false);

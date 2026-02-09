@@ -10,6 +10,8 @@ interface PlayerBuzzerProps {
   team: Team;
   buzzerEnabled: boolean;
   buzzerPress: BuzzerPress | null;
+  /** Team id that cannot buzz (e.g. team that already answered wrong in steal phase) */
+  noBuzzTeamId?: string | null;
 }
 
 export default function PlayerBuzzer({
@@ -19,6 +21,7 @@ export default function PlayerBuzzer({
   team,
   buzzerEnabled,
   buzzerPress,
+  noBuzzTeamId = null,
 }: PlayerBuzzerProps) {
   const [hasBuzzed, setHasBuzzed] = useState(false);
 
@@ -37,7 +40,7 @@ export default function PlayerBuzzer({
   }, [buzzerEnabled, buzzerPress, playerId]);
 
   const handleBuzz = () => {
-    if (!buzzerEnabled || hasBuzzed || buzzerPress) return;
+    if (!canBuzz) return;
 
     setHasBuzzed(true);
     const buzzerRef = getBuzzerRef(roomCode);
@@ -66,7 +69,13 @@ export default function PlayerBuzzer({
   };
 
   const buzzerLocked = !!buzzerPress && buzzerPress.playerId !== playerId;
-  const canBuzz = buzzerEnabled && !hasBuzzed && !buzzerLocked && !buzzerPress;
+  const myTeamCannotBuzz = noBuzzTeamId != null && team.id === noBuzzTeamId;
+  const canBuzz =
+    buzzerEnabled &&
+    !hasBuzzed &&
+    !buzzerLocked &&
+    !buzzerPress &&
+    !myTeamCannotBuzz;
 
   return (
     <div className="relative min-h-screen min-h-[100dvh] bg flex flex-col items-center justify-center p-4 sm:p-6 overflow-hidden">
@@ -108,6 +117,11 @@ export default function PlayerBuzzer({
               <div className="text-xl sm:text-2xl text-error font-bold mb-2">Locked</div>
               <div className="text-sm sm:text-base text-text-muted">Someone else pressed first. Wait for the host to resolve.</div>
             </div>
+          ) : myTeamCannotBuzz ? (
+            <div className="bg-surface border border-border rounded-gem p-4 sm:p-6">
+              <div className="text-xl sm:text-2xl text-text-muted font-bold mb-2">Other teams&apos; turn</div>
+              <div className="text-sm sm:text-base text-text-subtle">Your team already answered. Other teams can buzz to steal.</div>
+            </div>
           ) : !buzzerEnabled ? (
             <div className="bg-surface border border-border rounded-gem p-4 sm:p-6">
               <div className="text-lg sm:text-xl text-text-muted">Waiting for question...</div>
@@ -125,7 +139,7 @@ export default function PlayerBuzzer({
           type="button"
           onClick={handleBuzz}
           disabled={!canBuzz}
-          aria-label={canBuzz ? 'Buzz in' : hasBuzzed ? 'You buzzed' : 'Buzzer locked'}
+          aria-label={canBuzz ? 'Buzz in' : hasBuzzed ? 'You buzzed' : myTeamCannotBuzz ? "Your team can't buzz" : 'Buzzer locked'}
           className={`
             shrink-0 rounded-full font-bold transition-transform active:scale-95
             w-[min(80vmin,280px)] h-[min(80vmin,280px)] min-w-[200px] min-h-[200px]
@@ -138,7 +152,7 @@ export default function PlayerBuzzer({
           `}
         >
           <span className="text-2xl sm:text-3xl md:text-4xl px-2">
-            {hasBuzzed ? '✓ BUZZED!' : buzzerLocked ? 'LOCKED' : 'BUZZ IN'}
+            {hasBuzzed ? '✓ BUZZED!' : buzzerLocked ? 'LOCKED' : myTeamCannotBuzz ? "CAN'T BUZZ" : 'BUZZ IN'}
           </span>
         </button>
       </div>
