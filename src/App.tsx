@@ -772,14 +772,35 @@ function App() {
               }));
             }}
             onNewRoom={() => {
-              if (confirm('Start a new room? Players will need to rejoin with the new room code.')) {
+              if (confirm('Start a new room? This will reset all teams, scores, and game progress. Players will need to rejoin with the new room code.')) {
                 const newRoomCode = generateRoomCode();
-                setGameState(prev => ({
-                  ...prev,
+                
+                // Reset to initial game state with new room code
+                setGameState({
+                  teams: [],
+                  categories: gameData.map(cat => ({
+                    ...cat,
+                    questions: cat.questions.map(q => ({ ...q, answered: false })),
+                  })),
+                  currentQuestion: null,
+                  currentTeam: null,
+                  timer: 0,
+                  timerActive: false,
+                  gamePhase: 'setup' as const,
+                  selectedQuestion: null,
+                  stealTeam: null,
+                  selectedTeam: null,
+                  currentTeamIndex: 0,
+                  answerRevealed: false,
                   roomCode: newRoomCode,
                   buzzerEnabled: false,
                   buzzerPress: null,
-                }));
+                  players: [],
+                });
+                
+                // Clear localStorage
+                localStorage.removeItem(STORAGE_KEY);
+                
                 // Broadcast new room code to players
                 if (pusherChannelRef.current) {
                   pusherChannelRef.current.trigger('client-new-room', { roomCode: newRoomCode });
