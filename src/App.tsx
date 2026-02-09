@@ -118,7 +118,14 @@ function App() {
       // Send teams list to players immediately when channel is ready
       // Use ref to get latest teams without state delay
       if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+        // Broadcast immediately
         channel.trigger('client-teams-list', { teams: teamsRef.current });
+        // Also broadcast after a short delay to ensure all players receive it
+        setTimeout(() => {
+          if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+            channel.trigger('client-teams-list', { teams: teamsRef.current });
+          }
+        }, 100);
       }
     });
 
@@ -204,11 +211,18 @@ function App() {
     return () => clearTimeout(timeoutId);
   }, [gameState.buzzerEnabled, gameState.roomCode, isPlayerView]);
 
-  // Broadcast teams list when it changes
+  // Broadcast teams list when it changes - with retry logic
   useEffect(() => {
     if (!pusherChannelRef.current || !gameState.roomCode || isPlayerView) return;
     if (gameState.teams.length > 0) {
+      // Broadcast immediately
       pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
+      // Also broadcast after a short delay to ensure all players receive it
+      setTimeout(() => {
+        if (pusherChannelRef.current && gameState.teams.length > 0) {
+          pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
+        }
+      }, 200);
     }
   }, [gameState.teams, gameState.roomCode, isPlayerView]);
 
@@ -242,6 +256,15 @@ function App() {
         roomCode,
       };
       saveGameState(newState);
+      
+      // Broadcast teams immediately if channel is ready
+      // Channel will be set up by useEffect, but we can also trigger here
+      setTimeout(() => {
+        if (pusherChannelRef.current && teams.length > 0) {
+          pusherChannelRef.current.trigger('client-teams-list', { teams });
+        }
+      }, 100);
+      
       return newState;
     });
   };
@@ -673,12 +696,15 @@ function App() {
 
     channel.bind('client-teams-list', (data: { teams: Team[] }) => {
       const currentRoomCode = getRoomCodeFromURL();
-      setGameState(prev => ({
-        ...prev,
-        teams: data.teams || [],
-        // Keep roomCode from URL, don't overwrite it
-        roomCode: currentRoomCode || prev.roomCode,
-      }));
+      const receivedTeams = data.teams || [];
+      if (receivedTeams.length > 0) {
+        setGameState(prev => ({
+          ...prev,
+          teams: receivedTeams,
+          // Keep roomCode from URL, don't overwrite it
+          roomCode: currentRoomCode || prev.roomCode,
+        }));
+      }
     });
 
     return () => {
