@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Team, GameState, BuzzerPress } from './types/game';
 import { gameData } from './data/gameData';
-import { generateRoomCode, getGameChannel } from './config/pusher';
+import { generateRoomCode, getBuzzerRef, getNewRoomRef, getRoomRef, getTeamsRef } from './config/firebase';
+import { onValue, set } from 'firebase/database';
 import TeamSetup from './components/TeamSetup';
 import GameBoard from './components/GameBoard';
 import QuestionDisplay from './components/QuestionDisplay';
@@ -111,7 +112,6 @@ function App() {
   const [gameState, setGameState] = useState<GameState>(() => getInitialState(initialIsPlayerView));
   const [isPlayerView, setIsPlayerView] = useState(initialIsPlayerView);
   const [playerInfo, setPlayerInfo] = useState<{ id: string; name: string; teamId: string } | null>(null);
-  const pusherChannelRef = useRef<any>(null);
   const teamsRef = useRef<Team[]>([]);
 
   // Check if this is a player view (based on URL path)
@@ -120,89 +120,44 @@ function App() {
     setIsPlayerView(!isAdminPath(path));
   }, []);
 
-  // Initialize Pusher channel when room code is set (host only)
-  useEffect(() => {
-    if (!gameState.roomCode || isPlayerView) {
-      // Cleanup if room code removed or switching to player view
-      if (pusherChannelRef.current) {
-        pusherChannelRef.current.unbind_all();
-        pusherChannelRef.current.unsubscribe();
-        pusherChannelRef.current = null;
-      }
-      return;
-    }
-
-    // Unsubscribe from old channel if room code changed
-    if (pusherChannelRef.current) {
-      pusherChannelRef.current.unbind_all();
-      pusherChannelRef.current.unsubscribe();
-    }
-
-    const channel = getGameChannel(gameState.roomCode);
-    pusherChannelRef.current = channel;
-
-    // Enable client events
-    channel.bind('pusher:subscription_succeeded', () => {
-      // Send teams list to players immediately when channel is ready
-      // Get latest teams from ref (most up-to-date)
-      const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-      if (pusherChannelRef.current === channel && teamsToBroadcast.length > 0) {
-        // Broadcast immediately
-        try {
-          channel.trigger('client-teams-list', { teams: teamsToBroadcast });
-        } catch (e) {
-          // Channel might not be fully ready, that's ok
-        }
-        // Also broadcast multiple times to ensure all players receive it
-        const broadcast = () => {
-          if (pusherChannelRef.current === channel) {
-            const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-            if (currentTeams.length > 0) {
-              try {
-                channel.trigger('client-teams-list', { teams: currentTeams });
-              } catch (e) {
-                // Ignore errors
-              }
-            }
-          }
-        };
-        setTimeout(broadcast, 100);
-        setTimeout(broadcast, 300);
-        setTimeout(broadcast, 500);
-        setTimeout(broadcast, 1000);
-      }
+  const syncBuzzerState = (enabled: boolean, press: BuzzerPress | null) => {
+    if (isPlayerView || !gameState.roomCode) return;
+    const buzzerRef = getBuzzerRef(gameState.roomCode);
+    set(buzzerRef, { enabled, press: press || null }).catch(() => {
+      // Ignore transient network errors
     });
+  };
 
-    // Listen for buzzer presses
-    channel.bind('client-buzz', (data: BuzzerPress) => {
+  // Listen for buzzer presses from Firebase (host only)
+  useEffect(() => {
+    if (!gameState.roomCode || isPlayerView) return;
+
+    const buzzerRef = getBuzzerRef(gameState.roomCode);
+    const unsubscribe = onValue(buzzerRef, snapshot => {
+      const buzzer = snapshot.val();
+      if (!buzzer || !buzzer.press) return;
+      const data: BuzzerPress = buzzer.press;
+
       setGameState(prev => {
-        // Only process if buzzer is enabled and no one has buzzed yet
-        if (!prev.buzzerEnabled || prev.buzzerPress) {
-          return prev;
-        }
+        if (prev.buzzerPress) return prev;
 
-        // Find the team that buzzed in
         const buzzingTeam = prev.teams.find(t => t.id === data.teamId);
-        
-        // Validate team exists
         if (!buzzingTeam) {
           console.warn('Buzzer press from unknown team:', data.teamId);
           return prev;
         }
-        
-        // If in steal phase, don't allow the team that got it wrong to buzz
+
         if (prev.gamePhase === 'steal' && prev.currentTeam && buzzingTeam.id === prev.currentTeam.id) {
-          return prev; // Ignore buzz from team that already got it wrong
+          return prev;
         }
 
         const newState = {
           ...prev,
           buzzerPress: data,
-          buzzerEnabled: false, // Lock buzzer after first press
-          currentTeam: buzzingTeam, // Set the team that buzzed in
+          buzzerEnabled: false,
+          currentTeam: buzzingTeam,
         };
 
-        // If in steal phase, automatically transition to answer phase
         if (prev.gamePhase === 'steal') {
           newState.stealTeam = buzzingTeam;
           newState.gamePhase = 'answer';
@@ -213,95 +168,18 @@ function App() {
 
         return newState;
       });
-
-      // Broadcast that buzzer was pressed (outside state update to avoid race conditions)
-      setTimeout(() => {
-        if (pusherChannelRef.current === channel) {
-          channel.trigger('client-buzzer-pressed', { playerId: data.playerId });
-        }
-      }, 0);
     });
 
-    // Listen for team list requests - respond immediately with current teams from ref
-    channel.bind('client-request-teams', () => {
-      if (pusherChannelRef.current === channel) {
-        // Get latest teams immediately from ref (most up-to-date)
-        const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-        if (teamsToSend.length > 0) {
-          // Broadcast immediately - don't wait for state update
-          try {
-            channel.trigger('client-teams-list', { teams: teamsToSend });
-          } catch (e) {
-            // Channel might not be ready yet, try again
-            setTimeout(() => {
-              if (pusherChannelRef.current === channel) {
-                const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-                if (currentTeams.length > 0) {
-                  try {
-                    channel.trigger('client-teams-list', { teams: currentTeams });
-                  } catch (e2) {
-                    // Still not ready - teams change effect will handle it
-                  }
-                }
-              }
-            }, 200);
-          }
-        }
-      }
+    return () => unsubscribe();
+  }, [gameState.roomCode, isPlayerView]);
+
+  // Sync teams to Firebase (host only)
+  useEffect(() => {
+    if (isPlayerView || !gameState.roomCode || gameState.teams.length === 0) return;
+    const teamsRef = getTeamsRef(gameState.roomCode);
+    set(teamsRef, gameState.teams).catch(() => {
+      // Ignore transient network errors
     });
-
-    return () => {
-      if (pusherChannelRef.current === channel) {
-        channel.unbind_all();
-        channel.unsubscribe();
-        pusherChannelRef.current = null;
-      }
-    };
-  }, [gameState.roomCode, isPlayerView]); // Removed buzzerEnabled, buzzerPress, teams from deps to prevent rebinding
-
-  // Broadcast buzzer state changes and teams updates
-  useEffect(() => {
-    if (!pusherChannelRef.current || !gameState.roomCode || isPlayerView) return;
-
-    // Small delay to ensure state is set before broadcasting
-    const timeoutId = setTimeout(() => {
-      if (gameState.buzzerEnabled) {
-        pusherChannelRef.current?.trigger('client-buzzer-enabled', {});
-      } else {
-        pusherChannelRef.current?.trigger('client-buzzer-disabled', {});
-      }
-    }, 50);
-
-    return () => clearTimeout(timeoutId);
-  }, [gameState.buzzerEnabled, gameState.roomCode, isPlayerView]);
-
-  // Broadcast teams list when it changes - CRITICAL: This ensures teams are sent even if channel was already subscribed
-  useEffect(() => {
-    if (!pusherChannelRef.current || !gameState.roomCode || isPlayerView) return;
-    if (gameState.teams.length > 0) {
-      // Use teamsRef for most up-to-date teams
-      const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-      
-      // Function to broadcast teams
-      const broadcast = (teams: Team[]) => {
-        if (pusherChannelRef.current && teams.length > 0) {
-          try {
-            pusherChannelRef.current.trigger('client-teams-list', { teams });
-          } catch (e) {
-            // Channel might not be ready, that's ok
-          }
-        }
-      };
-      
-      // Broadcast immediately
-      broadcast(teamsToBroadcast);
-      // Also broadcast multiple times to ensure all players receive it
-      setTimeout(() => broadcast(teamsRef.current.length > 0 ? teamsRef.current : gameState.teams), 100);
-      setTimeout(() => broadcast(teamsRef.current.length > 0 ? teamsRef.current : gameState.teams), 300);
-      setTimeout(() => broadcast(teamsRef.current.length > 0 ? teamsRef.current : gameState.teams), 500);
-      setTimeout(() => broadcast(teamsRef.current.length > 0 ? teamsRef.current : gameState.teams), 1000);
-      setTimeout(() => broadcast(teamsRef.current.length > 0 ? teamsRef.current : gameState.teams), 2000);
-    }
   }, [gameState.teams, gameState.roomCode, isPlayerView]);
 
   // Keep teams ref in sync
@@ -339,34 +217,18 @@ function App() {
       };
       saveGameState(newState);
       
-      // Broadcast teams - channel subscription will happen in useEffect
-      // But we'll also try to broadcast here in case channel is already ready
-      // The useEffect for teams change will also broadcast
-      
       return newState;
     });
-    
-    // Try to broadcast immediately after state is set (channel might be ready)
-    // Also set up delayed broadcasts to catch when channel becomes ready
-    const broadcastTeams = () => {
-      if (pusherChannelRef.current && teams.length > 0) {
-        try {
-          pusherChannelRef.current.trigger('client-teams-list', { teams });
-        } catch (e) {
-          // Channel might not be ready yet, that's ok - useEffect will handle it
-          // Silently fail - subscription handler will broadcast when ready
-        }
-      }
-    };
-    
-    // Try immediately (channel might already be subscribed)
-    setTimeout(broadcastTeams, 0);
-    // Then try multiple times as channel subscription completes
-    setTimeout(broadcastTeams, 100);
-    setTimeout(broadcastTeams, 300);
-    setTimeout(broadcastTeams, 500);
-    setTimeout(broadcastTeams, 1000);
-    setTimeout(broadcastTeams, 2000);
+
+    if (!isPlayerView) {
+      set(getRoomRef(roomCode), {
+        teams,
+        buzzer: { enabled: false, press: null },
+        updatedAt: Date.now(),
+      }).catch(() => {
+        // Ignore transient network errors
+      });
+    }
   };
 
   const handlePlayerJoin = (playerId: string, name: string, teamId: string) => {
@@ -396,6 +258,8 @@ function App() {
       buzzerEnabled: true, // Enable buzzer for ALL teams when question is shown
       buzzerPress: null, // Reset buzzer press
     }));
+
+    syncBuzzerState(true, null);
   };
 
   const handleAnswer = (isCorrect: boolean) => {
@@ -461,6 +325,8 @@ function App() {
         buzzerEnabled: false,
         buzzerPress: null,
       }));
+
+      syncBuzzerState(false, null);
     } else {
       // Go to steal phase - enable buzzer for all OTHER teams
       // Update teamsRef immediately
@@ -477,6 +343,8 @@ function App() {
         buzzerPress: null,
         currentTeam: answeringTeam, // Keep track of who got it wrong (to prevent re-buzz)
       }));
+
+      syncBuzzerState(true, null);
     }
   };
 
@@ -506,6 +374,7 @@ function App() {
           buzzerEnabled: false,
           buzzerPress: prev.buzzerPress,
         }));
+        syncBuzzerState(false, gameState.buzzerPress);
         return;
       }
     }
@@ -521,6 +390,8 @@ function App() {
       buzzerEnabled: false,
       buzzerPress: null,
     }));
+
+    syncBuzzerState(false, null);
   };
 
   const handleSkipSteal = () => {
@@ -557,6 +428,8 @@ function App() {
       buzzerEnabled: false,
       buzzerPress: null,
     }));
+
+    syncBuzzerState(false, null);
   };
 
   const handleStealAnswer = (isCorrect: boolean) => {
@@ -614,6 +487,8 @@ function App() {
         buzzerEnabled: false,
         buzzerPress: null,
       }));
+
+      syncBuzzerState(false, null);
     } else {
       // Wrong steal - go back to steal phase, enable buzzer for remaining teams
       // Update teamsRef immediately (though score doesn't change for wrong steal)
@@ -632,6 +507,8 @@ function App() {
         buzzerEnabled: true, // Re-enable buzzer for other teams
         buzzerPress: null, // Reset buzzer so others can buzz
       }));
+
+      syncBuzzerState(true, null);
     }
   };
 
@@ -718,6 +595,8 @@ function App() {
           stealTeam: null, // Reset steal team
         };
       });
+
+      syncBuzzerState(true, null);
     }
     // Reset flag when timer starts again
     if (gameState.timerActive && gameState.timer > 0) {
@@ -758,110 +637,69 @@ function App() {
     return null;
   };
 
-  // Subscribe to game state updates for players
+  // Subscribe to buzzer state for players
   useEffect(() => {
     if (!isPlayerView) return;
-    
+
     const roomCode = getRoomCodeFromURL();
     if (!roomCode) return;
 
-    const channel = getGameChannel(roomCode);
-    
-    channel.bind('client-buzzer-enabled', () => {
-      setGameState(prev => ({ ...prev, buzzerEnabled: true }));
+    const buzzerRef = getBuzzerRef(roomCode);
+    const unsubscribe = onValue(buzzerRef, snapshot => {
+      const buzzer = snapshot.val();
+      if (!buzzer) return;
+      setGameState(prev => ({
+        ...prev,
+        buzzerEnabled: !!buzzer.enabled,
+        buzzerPress: buzzer.press || null,
+      }));
     });
 
-    channel.bind('client-buzzer-disabled', () => {
-      setGameState(prev => ({ ...prev, buzzerEnabled: false }));
-    });
-
-    channel.bind('client-buzzer-pressed', () => {
-      // Someone buzzed
-    });
-
-    channel.bind('client-new-room', (data: { roomCode?: string }) => {
-      const nextRoom = data?.roomCode?.toUpperCase?.().replace(/[^A-Z0-9]/g, '');
-      if (nextRoom) {
-        window.location.href = `/?room=${nextRoom}`;
-      }
-    });
-
-    return () => {
-      channel.unbind_all();
-      channel.unsubscribe();
-    };
+    return () => unsubscribe();
   }, [isPlayerView]);
 
-  // Subscribe to get teams list for players
+  // Subscribe to teams for players
   useEffect(() => {
     if (!isPlayerView) return;
-    
+
     const roomCode = getRoomCodeFromURL();
     if (!roomCode) return;
 
-    const channel = getGameChannel(roomCode);
-    let teamsReceived = false;
-    let pollInterval: number | null = null;
-    
-    // Request teams immediately and on subscription
-    const requestTeams = () => {
-      // Request immediately
-      channel.trigger('client-request-teams', {});
-    };
-    
-    channel.bind('pusher:subscription_succeeded', () => {
-      requestTeams();
-      // Also request multiple times to handle race conditions
-      setTimeout(requestTeams, 200);
-      setTimeout(requestTeams, 500);
-      setTimeout(requestTeams, 1000);
-      setTimeout(requestTeams, 2000);
-    });
-    
-    // Also request immediately (in case subscription already succeeded)
-    requestTeams();
-    setTimeout(requestTeams, 200);
-    setTimeout(requestTeams, 500);
-    setTimeout(requestTeams, 1000);
-
-    channel.bind('client-teams-list', (data: { teams: Team[] }) => {
-      const currentRoomCode = getRoomCodeFromURL();
-      const receivedTeams = data.teams || [];
+    const teamsRef = getTeamsRef(roomCode);
+    const unsubscribe = onValue(teamsRef, snapshot => {
+      const value = snapshot.val();
+      if (!value) return;
+      const receivedTeams = Array.isArray(value) ? value : Object.values(value);
       if (receivedTeams.length > 0) {
-        teamsReceived = true;
-        // Clear polling once we have teams
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
+        const currentRoomCode = getRoomCodeFromURL();
         setGameState(prev => ({
           ...prev,
-          teams: receivedTeams,
-          // Keep roomCode from URL, don't overwrite it
+          teams: receivedTeams as Team[],
           roomCode: currentRoomCode || prev.roomCode,
         }));
       }
     });
 
-    // Poll for teams every 2 seconds until we receive them
-    pollInterval = window.setInterval(() => {
-      if (!teamsReceived) {
-        requestTeams();
-      } else {
-        if (pollInterval) {
-          clearInterval(pollInterval);
-          pollInterval = null;
-        }
-      }
-    }, 2000);
+    return () => unsubscribe();
+  }, [isPlayerView]);
 
-    return () => {
-      if (pollInterval) {
-        clearInterval(pollInterval);
+  // Listen for new room notifications for players
+  useEffect(() => {
+    if (!isPlayerView) return;
+
+    const roomCode = getRoomCodeFromURL();
+    if (!roomCode) return;
+
+    const newRoomRef = getNewRoomRef(roomCode);
+    const unsubscribe = onValue(newRoomRef, snapshot => {
+      const data = snapshot.val();
+      const nextRoom = (data?.roomCode || data)?.toUpperCase?.().replace(/[^A-Z0-9]/g, '');
+      if (nextRoom) {
+        window.location.href = `/?room=${nextRoom}`;
       }
-      channel.unbind_all();
-      channel.unsubscribe();
-    };
+    });
+
+    return () => unsubscribe();
   }, [isPlayerView]);
 
   // Player view - show join or buzzer
@@ -908,7 +746,7 @@ function App() {
       // Ensure roomCode is clean (only alphanumeric, uppercase)
       const cleanRoomCode = playerRoomCode ? playerRoomCode.replace(/[^A-Z0-9]/g, '').toUpperCase() : '';
       
-      // Show join screen even if teams aren't synced yet - they'll be updated via Pusher
+      // Show join screen even if teams aren't synced yet - they'll be updated via Firebase
       return (
         <PlayerJoin
           roomCode={cleanRoomCode}
@@ -948,6 +786,7 @@ function App() {
         playerName={playerInfo.name}
         team={team}
         buzzerEnabled={gameState.buzzerEnabled}
+        buzzerPress={gameState.buzzerPress}
       />
     );
   }
@@ -985,6 +824,7 @@ function App() {
             onNewRoom={() => {
               if (confirm('Start a new room? This will reset all teams, scores, and game progress. Players will need to rejoin with the new room code.')) {
                 const newRoomCode = generateRoomCode();
+                const oldRoomCode = gameState.roomCode;
                 
                 // Reset teamsRef
                 teamsRef.current = [];
@@ -1014,11 +854,20 @@ function App() {
                 
                 // Clear localStorage
                 localStorage.removeItem(STORAGE_KEY);
-                
-                // Broadcast new room code to players
-                if (pusherChannelRef.current) {
-                  pusherChannelRef.current.trigger('client-new-room', { roomCode: newRoomCode });
+
+                if (oldRoomCode) {
+                  set(getNewRoomRef(oldRoomCode), { roomCode: newRoomCode, timestamp: Date.now() }).catch(() => {
+                    // Ignore transient network errors
+                  });
                 }
+
+                set(getRoomRef(newRoomCode), {
+                  teams: [],
+                  buzzer: { enabled: false, press: null },
+                  updatedAt: Date.now(),
+                }).catch(() => {
+                  // Ignore transient network errors
+                });
               }
             }}
           />

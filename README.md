@@ -77,3 +77,4 @@ npm run preview
 - TypeScript
 - Vite
 - Tailwind CSS
+- Firebase Realtime Database

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getGameChannel } from '../config/pusher';
-import { Team } from '../types/game';
+import { runTransaction } from 'firebase/database';
+import { getBuzzerRef } from '../config/firebase';
+import { Team, BuzzerPress } from '../types/game';
 
 interface PlayerBuzzerProps {
   roomCode: string;
@@ -8,6 +9,7 @@ interface PlayerBuzzerProps {
   playerName: string;
   team: Team;
   buzzerEnabled: boolean;
+  buzzerPress: BuzzerPress | null;
 }
 
 export default function PlayerBuzzer({
@@ -16,56 +18,55 @@ export default function PlayerBuzzer({
   playerName,
   team,
   buzzerEnabled,
+  buzzerPress,
 }: PlayerBuzzerProps) {
   const [hasBuzzed, setHasBuzzed] = useState(false);
-  const [buzzerLocked, setBuzzerLocked] = useState(false);
 
   useEffect(() => {
-    const channel = getGameChannel(roomCode);
+    if (buzzerPress) {
+      setHasBuzzed(buzzerPress.playerId === playerId);
+      return;
+    }
 
-    // Listen for buzzer state changes
-    const handleBuzzerEnabled = () => {
+    if (buzzerEnabled) {
       setHasBuzzed(false);
-      setBuzzerLocked(false);
-    };
+      return;
+    }
 
-    const handleBuzzerDisabled = () => {
-      setBuzzerLocked(true);
-    };
-
-    const handleBuzzerPressed = (data: { playerId: string }) => {
-      if (data.playerId !== playerId) {
-        setBuzzerLocked(true);
-      }
-    };
-
-    channel.bind('client-buzzer-enabled', handleBuzzerEnabled);
-    channel.bind('client-buzzer-disabled', handleBuzzerDisabled);
-    channel.bind('client-buzzer-pressed', handleBuzzerPressed);
-
-    return () => {
-      channel.unbind('client-buzzer-enabled', handleBuzzerEnabled);
-      channel.unbind('client-buzzer-disabled', handleBuzzerDisabled);
-      channel.unbind('client-buzzer-pressed', handleBuzzerPressed);
-      channel.unsubscribe();
-    };
-  }, [roomCode, playerId]);
+    setHasBuzzed(false);
+  }, [buzzerEnabled, buzzerPress, playerId]);
 
   const handleBuzz = () => {
-    if (!buzzerEnabled || hasBuzzed || buzzerLocked) return;
+    if (!buzzerEnabled || hasBuzzed || buzzerPress) return;
 
     setHasBuzzed(true);
-    const channel = getGameChannel(roomCode);
-    channel.trigger('client-buzz', {
-      playerId,
-      playerName,
-      teamId: team.id,
-      teamName: team.name,
-      timestamp: Date.now(),
+    const buzzerRef = getBuzzerRef(roomCode);
+    runTransaction(buzzerRef, current => {
+      if (!current || current.enabled !== true || current.press) {
+        return current;
+      }
+      return {
+        ...current,
+        enabled: false,
+        press: {
+          playerId,
+          playerName,
+          teamId: team.id,
+          teamName: team.name,
+          timestamp: Date.now(),
+        },
+      };
+    }).then(result => {
+      if (!result.committed) {
+        setHasBuzzed(false);
+      }
+    }).catch(() => {
+      setHasBuzzed(false);
     });
   };
 
-  const canBuzz = buzzerEnabled && !hasBuzzed && !buzzerLocked;
+  const buzzerLocked = !!buzzerPress && buzzerPress.playerId !== playerId;
+  const canBuzz = buzzerEnabled && !hasBuzzed && !buzzerLocked && !buzzerPress;
 
   return (
     <div className="relative min-h-screen bg flex items-center justify-center p-8 overflow-hidden">

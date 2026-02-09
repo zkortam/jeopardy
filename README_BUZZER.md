@@ -1,29 +1,20 @@
 # Buzzer System Setup
 
-## Pusher Configuration
+## Firebase Realtime Database Configuration
 
-1. Sign up for a free Pusher account at https://dashboard.pusher.com/
-2. Create a new app (choose "Channels" app)
-   - In App Settings, enable **Client Events**
-3. Get your credentials:
-   - App Key
-   - App Secret
-   - Cluster (e.g., us2, eu, ap-southeast-1)
-4. Create a `.env` file in the root directory:
+1. Create or open the Firebase project: `esagbm`
+2. Enable **Realtime Database**
+3. Update your Realtime Database Rules (no auth flow is used right now):
    ```
-   VITE_PUSHER_KEY=your-app-key-here
-   VITE_PUSHER_CLUSTER=us2
-   VITE_PUSHER_AUTH_ENDPOINT=/api/pusher/auth
+   {
+     "rules": {
+       ".read": true,
+       ".write": true
+     }
+   }
    ```
-5. Add serverless env vars (Vercel Project Settings → Environment Variables):
-   ```
-   PUSHER_KEY=your-app-key-here
-   PUSHER_SECRET=your-app-secret-here
-   ```
-6. Or update `src/config/pusher.ts` directly with your credentials
-
-### Local Development Note
-- The auth endpoint lives at `/api/pusher/auth`. For local testing, either run `vercel dev` or set `VITE_PUSHER_AUTH_ENDPOINT` to a deployed URL.
+   Note: This is open access. If you need lock‑down, add Firebase Auth and restrict rules by user/room.
+4. The client config is stored in `src/config/firebase.ts`
 
 ## How It Works
 
@@ -43,11 +34,10 @@
 - Shows "You buzzed in!" or "Someone else buzzed first!"
 
 ## Features
-- Real-time buzzer synchronization via Pusher
+- Real-time buzzer synchronization via Firebase Realtime Database
 - First-come-first-served buzzer lockout
 - Works on any device with a browser
-- Uses a serverless auth endpoint for private channels (no dedicated server)
-- Free Pusher tier supports 100 concurrent connections
+- No backend server required
 
 ## Usage
 1. Host opens `/admin` on the projector and starts the game
