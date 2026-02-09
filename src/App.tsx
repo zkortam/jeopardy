@@ -116,29 +116,40 @@ function App() {
     // Enable client events
     channel.bind('pusher:subscription_succeeded', () => {
       // Send teams list to players immediately when channel is ready
-      // Use ref to get latest teams without state delay, fallback to state if ref is empty
-      const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-      if (pusherChannelRef.current === channel && teamsToBroadcast.length > 0) {
-        // Broadcast immediately
-        channel.trigger('client-teams-list', { teams: teamsToBroadcast });
-        // Also broadcast multiple times to ensure all players receive it
-        setTimeout(() => {
-          if (pusherChannelRef.current === channel) {
-            const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-            if (currentTeams.length > 0) {
-              channel.trigger('client-teams-list', { teams: currentTeams });
+      // Use functional update to get latest teams
+      setGameState(prev => {
+        const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+        if (pusherChannelRef.current === channel && teamsToBroadcast.length > 0) {
+          // Broadcast immediately
+          channel.trigger('client-teams-list', { teams: teamsToBroadcast });
+          // Also broadcast multiple times to ensure all players receive it
+          setTimeout(() => {
+            if (pusherChannelRef.current === channel) {
+              const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+              if (currentTeams.length > 0) {
+                channel.trigger('client-teams-list', { teams: currentTeams });
+              }
             }
-          }
-        }, 100);
-        setTimeout(() => {
-          if (pusherChannelRef.current === channel) {
-            const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
-            if (currentTeams.length > 0) {
-              channel.trigger('client-teams-list', { teams: currentTeams });
+          }, 100);
+          setTimeout(() => {
+            if (pusherChannelRef.current === channel) {
+              const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+              if (currentTeams.length > 0) {
+                channel.trigger('client-teams-list', { teams: currentTeams });
+              }
             }
-          }
-        }, 500);
-      }
+          }, 500);
+          setTimeout(() => {
+            if (pusherChannelRef.current === channel) {
+              const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
+              if (currentTeams.length > 0) {
+                channel.trigger('client-teams-list', { teams: currentTeams });
+              }
+            }
+          }, 1000);
+        }
+        return prev; // Don't modify state
+      });
     });
 
     // Listen for buzzer presses
@@ -193,24 +204,12 @@ function App() {
     // Listen for team list requests - respond immediately with current teams from ref
     channel.bind('client-request-teams', () => {
       if (pusherChannelRef.current === channel) {
-        // Use functional state update to get latest teams, then broadcast
-        setGameState(prev => {
-          // Always use ref first (most up-to-date), fallback to state
-          const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
-          if (teamsToSend.length > 0) {
-            // Use setTimeout to ensure we're outside state update cycle
-            setTimeout(() => {
-              if (pusherChannelRef.current === channel) {
-                // Get latest teams again (in case they changed)
-                const latestTeams = teamsRef.current.length > 0 ? teamsRef.current : prev.teams;
-                if (latestTeams.length > 0) {
-                  channel.trigger('client-teams-list', { teams: latestTeams });
-                }
-              }
-            }, 0);
-          }
-          return prev; // Don't modify state, just use it to get latest value
-        });
+        // Respond immediately using ref (most up-to-date), fallback to state
+        const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+        if (teamsToSend.length > 0) {
+          // Broadcast immediately - don't wait for state update
+          channel.trigger('client-teams-list', { teams: teamsToSend });
+        }
       }
     });
 
@@ -243,12 +242,17 @@ function App() {
   useEffect(() => {
     if (!pusherChannelRef.current || !gameState.roomCode || isPlayerView) return;
     if (gameState.teams.length > 0) {
+      // Use teamsRef for most up-to-date teams
+      const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
       // Broadcast immediately
-      pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
+      pusherChannelRef.current.trigger('client-teams-list', { teams: teamsToBroadcast });
       // Also broadcast multiple times to ensure all players receive it
       const broadcast = () => {
-        if (pusherChannelRef.current && gameState.teams.length > 0) {
-          pusherChannelRef.current.trigger('client-teams-list', { teams: gameState.teams });
+        if (pusherChannelRef.current) {
+          const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+          if (currentTeams.length > 0) {
+            pusherChannelRef.current.trigger('client-teams-list', { teams: currentTeams });
+          }
         }
       };
       setTimeout(broadcast, 200);
@@ -293,23 +297,33 @@ function App() {
       };
       saveGameState(newState);
       
-      // Broadcast teams immediately if channel is ready
-      // Try multiple times to ensure it gets through
-      const broadcastTeams = () => {
-        if (pusherChannelRef.current && teams.length > 0) {
-          pusherChannelRef.current.trigger('client-teams-list', { teams });
-        }
-      };
-      
-      // Broadcast immediately
-      broadcastTeams();
-      // Also broadcast after delays to catch late subscribers
-      setTimeout(broadcastTeams, 100);
-      setTimeout(broadcastTeams, 500);
-      setTimeout(broadcastTeams, 1000);
+      // Broadcast teams - channel subscription will happen in useEffect
+      // But we'll also try to broadcast here in case channel is already ready
+      // The useEffect for teams change will also broadcast
       
       return newState;
     });
+    
+    // Try to broadcast immediately after state is set (channel might be ready)
+    // Also set up delayed broadcasts to catch when channel becomes ready
+    const broadcastTeams = () => {
+      if (pusherChannelRef.current && teams.length > 0) {
+        try {
+          pusherChannelRef.current.trigger('client-teams-list', { teams });
+        } catch (e) {
+          // Channel might not be ready yet, that's ok
+        }
+      }
+    };
+    
+    // Try immediately
+    setTimeout(broadcastTeams, 0);
+    // Then try multiple times as channel subscription completes
+    setTimeout(broadcastTeams, 100);
+    setTimeout(broadcastTeams, 300);
+    setTimeout(broadcastTeams, 500);
+    setTimeout(broadcastTeams, 1000);
+    setTimeout(broadcastTeams, 2000);
   };
 
   const handlePlayerJoin = (playerId: string, name: string, teamId: string) => {
