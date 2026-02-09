@@ -49,18 +49,35 @@ function getInitialState(isPlayerView: boolean): GameState {
   if (!isPlayerView) {
     const saved = loadGameState();
     if (saved) {
+      const teams = saved.teams || [];
+      const selectedTeamFromSaved = saved.selectedTeam && teams.find(t => t.id === saved.selectedTeam!.id)
+        ? saved.selectedTeam
+        : teams[0] || null;
+      const selectedTeamIndex = selectedTeamFromSaved
+        ? teams.findIndex(t => t.id === selectedTeamFromSaved.id)
+        : 0;
+      const currentTeamIndex =
+        Number.isInteger(saved.currentTeamIndex) &&
+        saved.currentTeamIndex >= 0 &&
+        saved.currentTeamIndex < teams.length
+          ? saved.currentTeamIndex
+          : Math.max(0, selectedTeamIndex);
+
       // Reset timer and active states when loading from storage
       return {
         ...saved,
+        teams,
         timer: 0,
         timerActive: false,
         answerRevealed: false,
         buzzerEnabled: false,
         buzzerPress: null,
+        selectedTeam: selectedTeamFromSaved,
+        currentTeamIndex,
         // If we were in answer phase, go back to playing
         gamePhase: saved.gamePhase === 'answer' ? 'playing' : saved.gamePhase,
         // Ensure roomCode exists if we have teams
-        roomCode: saved.roomCode || (saved.teams && saved.teams.length > 0 ? generateRoomCode() : null),
+        roomCode: saved.roomCode || (teams.length > 0 ? generateRoomCode() : null),
         players: saved.players || [],
       };
     }

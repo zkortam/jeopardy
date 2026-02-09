@@ -50,8 +50,8 @@
 - Free Pusher tier supports 100 concurrent connections
 
 ## Usage
-1. Host starts game on projector
-2. Share room code and player URL with participants
+1. Host opens `/admin` on the projector and starts the game
+2. Share the room code and player URL with participants
 3. Players join and select teams
 4. When question appears, players can buzz
 5. Admin sees who buzzed first on projector screen

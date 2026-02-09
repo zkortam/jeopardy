@@ -97,20 +97,20 @@ export default function PlayerBuzzer({
         </div>
 
         <div className="mb-8 fade-in-up">
-          {!buzzerEnabled ? (
-            <div className="bg-surface border border-border rounded-gem p-6">
-              <div className="text-xl text-text-muted">Waiting for question...</div>
-              <div className="text-sm text-text-subtle mt-2">The buzzer will activate when a question is shown</div>
+          {hasBuzzed ? (
+            <div className="bg-gold/20 border-2 border-gold rounded-gem p-6 animate-pulse">
+              <div className="text-3xl text-gold font-bold mb-2">✓ You buzzed in!</div>
+              <div className="text-text-muted">Waiting for host to call on you</div>
             </div>
           ) : buzzerLocked ? (
             <div className="bg-surface border border-error/30 rounded-gem p-6">
               <div className="text-2xl text-error font-bold mb-2">Locked</div>
               <div className="text-text-muted">Someone else buzzed first</div>
             </div>
-          ) : hasBuzzed ? (
-            <div className="bg-gold/20 border-2 border-gold rounded-gem p-6 animate-pulse">
-              <div className="text-3xl text-gold font-bold mb-2">✓ You buzzed in!</div>
-              <div className="text-text-muted">Waiting for host to call on you</div>
+          ) : !buzzerEnabled ? (
+            <div className="bg-surface border border-border rounded-gem p-6">
+              <div className="text-xl text-text-muted">Waiting for question...</div>
+              <div className="text-sm text-text-subtle mt-2">The buzzer will activate when a question is shown</div>
             </div>
           ) : (
             <div className="bg-surface border-2 border-gold rounded-gem p-6">

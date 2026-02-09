@@ -67,6 +67,10 @@ npm run preview
 5. **Scoring**: Points are added/deducted automatically
 6. **Finish**: When all questions are answered, view the leaderboard
 
+### Buzzer System
+- Host/admin view: open `/admin`
+- Player view: open `/?room=ROOMCODE` (or `/room/ROOMCODE`)
+
 ## Technology Stack
 
 - React 18
