@@ -1,0 +1,251 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Font imports - Modern sans-serif with strong vertical proportions */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ==========================================================================
+   CSS Custom Properties - Dark Mode (Default for Jeopardy)
+   Deep matte black with basalt undertones
+   ========================================================================== */
+
+:root {
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* RGB values for rgba() usage */
+  --color-bg-rgb: 12, 11, 10;
+  --color-border-rgb: 42, 40, 38;
+
+  --color-bg: #0c0b0a;               /* Deep matte black */
+  --color-bg-alt: #141311;           /* Slightly lighter black */
+  --color-surface: #1a1918;          /* Dark surface */
+  --color-surface-elevated: #222120; /* Elevated dark surface */
+
+  /* Text colors - warm undertones preserved */
+  --color-text: #f5f2ed;             /* Warm off-white */
+  --color-text-muted: #a8a299;       /* Muted warm gray */
+  --color-text-subtle: #6e6a64;      /* Subtle warm gray */
+
+  /* Gold becomes more luminous in dark mode */
+  --color-gold: #c9a85c;             /* Brighter gold */
+  --color-gold-light: #dfc278;       /* Light gold */
+  --color-gold-dark: #a68a4b;        /* Standard gold */
+
+  --color-bronze: #b08d5b;           /* Brighter bronze */
+  --color-bronze-light: #c9a574;     /* Light bronze */
+
+  /* Environmental colors adjust */
+  --color-sand: #3d3832;             /* Dark sand */
+  --color-limestone: #2e2b27;        /* Dark limestone */
+  --color-basalt: #c4bfb5;           /* Inverted - light basalt */
+  --color-midnight: #8fa3c4;         /* Light midnight blue */
+
+  /* Borders - subtle in dark mode */
+  --color-border: #1f1e1d;           /* Darker, more subtle border */
+  --color-border-light: #2a2826;     /* Slightly visible border */
+
+  /* Shadows - more prominent in dark mode */
+  --shadow-color: 0deg 0% 5%;
+}
+
+/* ==========================================================================
+   Base Styles - Monumental Foundation
+   ========================================================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+/* Input field styling */
+input[type="text"],
+input[type="text"]:focus {
+  background-color: var(--color-bg-alt) !important;
+  color: var(--color-text) !important;
+}
+
+input[type="text"]::placeholder {
+  color: var(--color-text-subtle);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  line-height: 1.7;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+  transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+              color 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================================
+   Typography - Monumental & Refined
+   ========================================================================== */
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+}
+
+h1 {
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.font-display {
+  font-feature-settings: 'kern' 1, 'liga' 1, 'ss01' 1;
+}
+
+/* ==========================================================================
+   Focus States - Architectural, Not Decorative
+   ========================================================================== */
+
+*:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ==========================================================================
+   Selection - Gold tinted
+   ========================================================================== */
+
+::selection {
+  background-color: var(--color-gold);
+  color: var(--color-bg);
+}
+
+/* ==========================================================================
+   Scrollbar - Minimal, Architectural
+   ========================================================================== */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) var(--color-bg);
+}
+
+/* ==========================================================================
+   Reduced Motion - Accessibility
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Utility Classes - GEM Design System
+   ========================================================================== */
+
+/* Geometric Borders - Sharp, Intentional */
+.border-gem {
+  border-radius: 2px;
+}
+
+/* Stone-like surface texture (subtle) */
+.surface-stone {
+  background-color: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.surface-stone-elevated {
+  background-color: var(--color-surface-elevated);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Gold accent underline */
+.accent-underline {
+  position: relative;
+}
+
+.accent-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -0.5rem;
+  left: 0;
+  width: 3rem;
+  height: 2px;
+  background-color: var(--color-gold);
+}
+
+.accent-underline-center::after {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* ==========================================================================
+   Transitions - Slow, Deliberate Visual Rhythm
+   ========================================================================== */
+
+.transition-monumental {
+  transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.transition-subtle {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ==========================================================================
+   Fade Animations - Smooth, Apple-esque
+   ========================================================================== */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
