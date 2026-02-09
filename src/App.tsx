@@ -2,7 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { Team, GameState, BuzzerPress } from './types/game';
 import { gameData } from './data/gameData';
 import { generateRoomCode, getBuzzerRef, getNewRoomRef, getRoomRef, getTeamsRef } from './config/firebase';
-import { onValue, set } from 'firebase/database';
+import { normalizeRoomCode as normalizeRoomCodeUtil, validateRoomCodeFormat } from './utils/roomCode';
+import { parseTeamsFromFirebase } from './utils/teams';
+import { onValue, set, type DataSnapshot } from 'firebase/database';
 import TeamSetup from './components/TeamSetup';
 import GameBoard from './components/GameBoard';
 import QuestionDisplay from './components/QuestionDisplay';
@@ -165,7 +167,7 @@ function App() {
     if (!gameState.roomCode || isPlayerView) return;
 
     const buzzerRef = getBuzzerRef(gameState.roomCode);
-    const unsubscribe = onValue(buzzerRef, snapshot => {
+    const unsubscribe = onValue(buzzerRef, (snapshot: DataSnapshot) => {
       const buzzer = snapshot.val();
       if (!buzzer || !buzzer.press) return;
       const data: BuzzerPress = buzzer.press;
@@ -264,7 +266,7 @@ function App() {
             return newState;
           });
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           setIsCreatingRoom(false);
           setRoomCreateFailed(true);
           console.error('Failed to create room in Firebase:', err);
@@ -690,7 +692,7 @@ function App() {
     setRoomExists(null);
     const roomRef = getRoomRef(playerRoomCode);
     let graceTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = onValue(roomRef, snapshot => {
+    const unsubscribe = onValue(roomRef, (snapshot: DataSnapshot) => {
       const data = snapshot.val();
       const exists = data !== null && typeof data === 'object';
       if (exists) {
@@ -705,7 +707,7 @@ function App() {
           setRoomExists(false);
         }, 2000);
       }
-    }, (error) => {
+    }, (error: unknown) => {
       if (graceTimer) clearTimeout(graceTimer);
       console.error('Error checking room:', error);
       setRoomExists(false);
@@ -722,7 +724,7 @@ function App() {
     if (!playerRoomCode) return;
 
     const buzzerRef = getBuzzerRef(playerRoomCode);
-    const unsubscribe = onValue(buzzerRef, snapshot => {
+    const unsubscribe = onValue(buzzerRef, (snapshot: DataSnapshot) => {
       const buzzer = snapshot.val();
       if (!buzzer) return;
       setGameState(prev => ({
@@ -741,7 +743,7 @@ function App() {
     if (!playerRoomCode) return;
 
     const teamsRef = getTeamsRef(playerRoomCode);
-    const unsubscribe = onValue(teamsRef, snapshot => {
+    const unsubscribe = onValue(teamsRef, (snapshot: DataSnapshot) => {
       const value = snapshot.val();
       if (!value) {
         // If no value, set empty teams array to clear any stale data
@@ -752,16 +754,13 @@ function App() {
         }));
         return;
       }
-      const raw = Array.isArray(value) ? value : Object.values(value || {});
-      const receivedTeams = raw.filter(
-        (t): t is Team => t && typeof t === 'object' && typeof t.id === 'string' && typeof t.name === 'string' && typeof t.score === 'number'
-      );
+      const receivedTeams = parseTeamsFromFirebase(value);
       setGameState(prev => ({
         ...prev,
         teams: receivedTeams,
         roomCode: playerRoomCode || prev.roomCode,
       }));
-    }, (error) => {
+    }, (error: unknown) => {
       console.error('Error fetching teams:', error);
       // On error, keep current state but log the error
     });
@@ -775,7 +774,7 @@ function App() {
     if (!playerRoomCode) return;
 
     const newRoomRef = getNewRoomRef(playerRoomCode);
-    const unsubscribe = onValue(newRoomRef, snapshot => {
+    const unsubscribe = onValue(newRoomRef, (snapshot: DataSnapshot) => {
       const data = snapshot.val();
       const nextRoom = (data?.roomCode || data)?.toUpperCase?.().replace(/[^A-Z0-9]/g, '');
       if (nextRoom) {
@@ -790,14 +789,11 @@ function App() {
   if (isPlayerView) {
     if (!playerRoomCode) {
       const tryJoin = () => {
-        const code = roomCodeInput.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const code = normalizeRoomCodeUtil(roomCodeInput);
         setRoomCodeError('');
-        if (!code) {
-          setRoomCodeError('Enter a room code');
-          return;
-        }
-        if (code.length < 4 || code.length > 8) {
-          setRoomCodeError('Room code must be 4–8 letters or numbers');
+        const { valid, error } = validateRoomCodeFormat(code);
+        if (!valid) {
+          setRoomCodeError(error ?? 'Invalid room code');
           return;
         }
         setPlayerRoomCode(code);
@@ -813,7 +809,7 @@ function App() {
                 type="text"
                 value={roomCodeInput}
                 onChange={(e) => {
-                  setRoomCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+                  setRoomCodeInput(normalizeRoomCodeUtil(e.target.value));
                   setRoomCodeError('');
                 }}
                 placeholder="e.g. ABC123"

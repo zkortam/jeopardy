@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { runTransaction } from 'firebase/database';
+import { runTransaction, type TransactionResult } from 'firebase/database';
 import { getBuzzerRef } from '../config/firebase';
 import { Team, BuzzerPress } from '../types/game';
 
@@ -41,7 +41,7 @@ export default function PlayerBuzzer({
 
     setHasBuzzed(true);
     const buzzerRef = getBuzzerRef(roomCode);
-    runTransaction(buzzerRef, current => {
+    runTransaction(buzzerRef, (current: { enabled?: boolean; press?: unknown } | null) => {
       if (!current || current.enabled !== true || current.press) {
         return current;
       }
@@ -56,7 +56,7 @@ export default function PlayerBuzzer({
           timestamp: Date.now(),
         },
       };
-    }).then(result => {
+    }).then((result: TransactionResult) => {
       if (!result.committed) {
         setHasBuzzed(false);
       }
