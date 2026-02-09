@@ -647,26 +647,6 @@ function App() {
     }
   }, [gameState.categories, gameState.gamePhase]);
 
-  // Get room code from URL (path or query param)
-  const getRoomCodeFromURL = (): string | null => {
-    const path = window.location.pathname;
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    // Check if room code is in path (e.g., /room/ABC123)
-    const pathMatch = path.match(/\/room\/([A-Z0-9]+)/i);
-    if (pathMatch) {
-      return pathMatch[1].toUpperCase().replace(/[^A-Z0-9]/g, '');
-    }
-    
-    // Fallback to query parameter - clean it to only alphanumeric
-    const roomParam = urlParams.get('room');
-    if (roomParam) {
-      return roomParam.toUpperCase().replace(/[^A-Z0-9]/g, '') || null;
-    }
-    
-    return null;
-  };
-
   // Validate room exists for players (block invalid codes)
   useEffect(() => {
     if (!isPlayerView || !playerRoomCode) return;
