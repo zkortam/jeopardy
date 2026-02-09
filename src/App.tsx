@@ -116,16 +116,28 @@ function App() {
     // Enable client events
     channel.bind('pusher:subscription_succeeded', () => {
       // Send teams list to players immediately when channel is ready
-      // Use ref to get latest teams without state delay
-      if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+      // Use ref to get latest teams without state delay, fallback to state if ref is empty
+      const teamsToBroadcast = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+      if (pusherChannelRef.current === channel && teamsToBroadcast.length > 0) {
         // Broadcast immediately
-        channel.trigger('client-teams-list', { teams: teamsRef.current });
-        // Also broadcast after a short delay to ensure all players receive it
+        channel.trigger('client-teams-list', { teams: teamsToBroadcast });
+        // Also broadcast multiple times to ensure all players receive it
         setTimeout(() => {
-          if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
-            channel.trigger('client-teams-list', { teams: teamsRef.current });
+          if (pusherChannelRef.current === channel) {
+            const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+            if (currentTeams.length > 0) {
+              channel.trigger('client-teams-list', { teams: currentTeams });
+            }
           }
         }, 100);
+        setTimeout(() => {
+          if (pusherChannelRef.current === channel) {
+            const currentTeams = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+            if (currentTeams.length > 0) {
+              channel.trigger('client-teams-list', { teams: currentTeams });
+            }
+          }
+        }, 500);
       }
     });
 
@@ -180,9 +192,13 @@ function App() {
 
     // Listen for team list requests - respond immediately with current teams from ref
     channel.bind('client-request-teams', () => {
-      if (pusherChannelRef.current === channel && teamsRef.current.length > 0) {
+      if (pusherChannelRef.current === channel) {
+        // Always respond, even if teamsRef is empty (might be timing issue)
         // Use ref to get latest teams immediately without state delay
-        channel.trigger('client-teams-list', { teams: teamsRef.current });
+        const teamsToSend = teamsRef.current.length > 0 ? teamsRef.current : gameState.teams;
+        if (teamsToSend.length > 0) {
+          channel.trigger('client-teams-list', { teams: teamsToSend });
+        }
       }
     });
 
@@ -246,6 +262,10 @@ function App() {
 
   const handleTeamsReady = (teams: Team[]) => {
     const roomCode = generateRoomCode();
+    
+    // Update teamsRef immediately BEFORE setting state
+    teamsRef.current = teams;
+    
     setGameState(prev => {
       const newState: GameState = {
         ...prev,
@@ -258,12 +278,19 @@ function App() {
       saveGameState(newState);
       
       // Broadcast teams immediately if channel is ready
-      // Channel will be set up by useEffect, but we can also trigger here
-      setTimeout(() => {
+      // Try multiple times to ensure it gets through
+      const broadcastTeams = () => {
         if (pusherChannelRef.current && teams.length > 0) {
           pusherChannelRef.current.trigger('client-teams-list', { teams });
         }
-      }, 100);
+      };
+      
+      // Broadcast immediately
+      broadcastTeams();
+      // Also broadcast after delays to catch late subscribers
+      setTimeout(broadcastTeams, 100);
+      setTimeout(broadcastTeams, 500);
+      setTimeout(broadcastTeams, 1000);
       
       return newState;
     });
@@ -683,16 +710,22 @@ function App() {
     const requestTeams = () => {
       // Request immediately
       channel.trigger('client-request-teams', {});
-      // Also request after a short delay to handle race conditions
-      setTimeout(() => {
-        channel.trigger('client-request-teams', {});
-      }, 500);
     };
     
-    channel.bind('pusher:subscription_succeeded', requestTeams);
+    channel.bind('pusher:subscription_succeeded', () => {
+      requestTeams();
+      // Also request multiple times to handle race conditions
+      setTimeout(requestTeams, 200);
+      setTimeout(requestTeams, 500);
+      setTimeout(requestTeams, 1000);
+      setTimeout(requestTeams, 2000);
+    });
     
     // Also request immediately (in case subscription already succeeded)
     requestTeams();
+    setTimeout(requestTeams, 200);
+    setTimeout(requestTeams, 500);
+    setTimeout(requestTeams, 1000);
 
     channel.bind('client-teams-list', (data: { teams: Team[] }) => {
       const currentRoomCode = getRoomCodeFromURL();
